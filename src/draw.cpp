@@ -2,6 +2,7 @@
 
 #include <raylib.h>
 
+#include <array>
 #include <cmath>
 #include <span>
 #include <utility>
@@ -9,6 +10,7 @@
 
 #include "geometry.h"
 #include "random.h"
+#include "rock.h"
 #include "screen.h"
 
 namespace asteroids {
@@ -101,6 +103,34 @@ void DrawShip(Vector2 position, float heading, float radius, bool thrusting,
   DrawTriangleAnyOrder(nose, notch, left_wing, body);
   DrawCircleV(ToScreen({0, -0.2f * r}, position, heading), 0.22f * r,
               Fade(kCockpitColor, alpha));
+}
+
+void DrawRock(Vector2 position, float rotation, float radius,
+              const RockShape& shape) {
+  // Work out every corner on screen first. std::array has a fixed size known
+  // at compile time, so it lives on the stack: no heap allocation per rock
+  // per frame, unlike a std::vector would need.
+  std::array<Vector2, kRockVertices> corners{};
+  for (int i = 0; i < kRockVertices; ++i) {
+    // Index loop rather than range-based `for`, because the index `i` is
+    // what decides each corner's angle.
+    const float angle = rotation + i * (360.0f / kRockVertices);
+    const Vector2 offset = RotatePoint({0, -radius * shape[i]}, angle);
+    corners[i] = Vector2{position.x + offset.x, position.y + offset.y};
+  }
+
+  // Fill: a fan of triangles from the centre to each pair of neighbouring
+  // corners. The bumps can make the outline slightly concave, which a single
+  // convex polygon couldn't draw, but a fan from the centre handles it.
+  // `(i + 1) % kRockVertices` wraps the last corner back round to the first.
+  for (int i = 0; i < kRockVertices; ++i) {
+    DrawTriangleAnyOrder(position, corners[i], corners[(i + 1) % kRockVertices],
+                         kRockColor);
+  }
+  for (int i = 0; i < kRockVertices; ++i) {
+    DrawLineEx(corners[i], corners[(i + 1) % kRockVertices], 2.0f,
+               kRockRimColor);
+  }
 }
 
 void DrawCenteredText(const char* text, int y, int font_size, Color color) {

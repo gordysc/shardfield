@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "random.h"
+#include "rock.h"
 
 /// @brief Everything that belongs to the game.
 namespace asteroids {
@@ -21,6 +22,10 @@ inline constexpr Color kShipColor{80, 220, 200, 255};
 inline constexpr Color kCockpitColor{220, 255, 250, 255};
 /// @brief Colour of the ship's engine flame.
 inline constexpr Color kFlameColor{255, 150, 60, 255};
+/// @brief Fill colour of a rock.
+inline constexpr Color kRockColor{96, 78, 118, 255};
+/// @brief Colour of the outline around a rock.
+inline constexpr Color kRockRimColor{176, 156, 200, 255};
 
 /// @brief One background star.
 struct Star {
@@ -69,6 +74,19 @@ void DrawTriangleAnyOrder(Vector2 a, Vector2 b, Vector2 c, Color color);
 ///        ship blink while it can't be hit.
 void DrawShip(Vector2 position, float heading, float radius, bool thrusting,
               float alpha);
+
+/// @brief Draws a rock: a filled bumpy shape with a lighter rim.
+///
+/// `shape` is taken by const reference. A RockShape is an array of 11
+/// floats, so a reference avoids copying them, and `const` promises the
+/// function only reads it.
+///
+/// @param position Centre of the rock.
+/// @param rotation How far the rock has spun, in degrees.
+/// @param radius Size of the rock before the bumps are applied.
+/// @param shape The rock's bumpy outline.
+void DrawRock(Vector2 position, float rotation, float radius,
+              const RockShape& shape);
 
 /// @brief Draws a line of text centred horizontally on the screen.
 ///

@@ -41,6 +41,7 @@ add_executable(asteroids
     src/game.cpp
     src/main.cpp
     src/random.cpp
+    src/rock.cpp
 )
 
 # Link raylib into the game. Linking a CMake target like `raylib` also adds

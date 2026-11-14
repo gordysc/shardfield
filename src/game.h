@@ -9,6 +9,7 @@
 
 #include "draw.h"
 #include "random.h"
+#include "rock.h"
 
 /// @brief Everything that belongs to the game.
 namespace asteroids {
@@ -37,8 +38,27 @@ struct Bullet {
   float time_left;
 };
 
-/// @brief The whole game. Owns the ship and the background, and knows how to
-/// update and draw them.
+/// @brief One drifting, spinning rock.
+struct Rock {
+  /// @brief Centre of the rock on screen.
+  Vector2 position;
+  /// @brief Velocity in pixels per second.
+  Vector2 velocity;
+  /// @brief How far the rock has spun, in degrees.
+  float rotation;
+  /// @brief How fast the rock spins, in degrees per second.
+  float spin;
+  /// @brief Which size of rock this is.
+  RockSize size;
+  /// @brief The rock's bumpy outline.
+  RockShape shape;
+  /// @brief Set when a bullet breaks the rock. Broken rocks are erased at
+  /// the end of the frame; see Game::HandleBulletHits().
+  bool broken = false;
+};
+
+/// @brief The whole game. Owns the ship, bullets, rocks and score, and knows
+/// how to update and draw them.
 ///
 /// main() creates one Game, then calls Update() and Draw() once per frame.
 class Game {
@@ -75,9 +95,25 @@ class Game {
   /// @brief Fires a bullet when SPACE is held and the gun is ready.
   /// @param dt Seconds since the last frame.
   void UpdateGun(float dt);
-  /// @brief Moves every bullet and removes the ones that have run out.
+  /// @brief Moves every bullet and counts down its lifetime.
   /// @param dt Seconds since the last frame.
   void UpdateBullets(float dt);
+  /// @brief Moves and spins every rock.
+  /// @param dt Seconds since the last frame.
+  void UpdateRocks(float dt);
+  /// @brief Breaks rocks that bullets touch, scores them and adds the
+  /// smaller pieces. Also removes spent bullets.
+  void HandleBulletHits();
+  /// @brief Adds a new rock.
+  /// @param size Which size of rock.
+  /// @param position Where the rock starts.
+  /// @param base_velocity Velocity to add on top of the rock's own random
+  ///        drift. A piece of a broken rock inherits some of its parent's.
+  /// @return The new rock. The caller decides where to store it.
+  Rock MakeRock(RockSize size, Vector2 position, Vector2 base_velocity);
+  /// @brief Adds a wave of large rocks, away from the ship.
+  /// @param count How many rocks to add.
+  void SpawnWave(int count);
 
   // Google style ends data member names with an underscore, so inside the
   // methods you can tell `ship_` (part of the Game) from a local variable.
@@ -91,6 +127,10 @@ class Game {
   /// @brief Bullets in flight. Bullets are added when fired and erased when
   /// they run out, so this vector grows and shrinks all the time.
   std::vector<Bullet> bullets_;
+  /// @brief Rocks still in play.
+  std::vector<Rock> rocks_;
+  /// @brief Points scored so far.
+  int score_;
 };
 
 }  // namespace asteroids
