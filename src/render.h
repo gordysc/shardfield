@@ -9,7 +9,7 @@
 namespace asteroids {
 
 /// @brief Draws every visible entity: rocks first, then circle sprites
-/// (bullets), then ships on top.
+/// (bullets and particles), then ships on top.
 ///
 /// It takes a `const Registry&`, so it can only read the entities, never
 /// change them, and the compiler enforces that. Call it between raylib's

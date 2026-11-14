@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "components.h"
+#include "draw.h"
 #include "entity.h"
 #include "geometry.h"
 #include "input.h"
@@ -32,6 +33,14 @@ void BreakRock(Registry& registry, Random& random, Entity rock) {
   const Vector2 position = registry.Get<Transform>(rock).position;
   const Vector2 velocity = registry.Get<Velocity>(rock).linear;
   registry.Destroy(rock);
+
+  // Bigger rocks make bigger bursts of dust.
+  const int dust = size == RockSize::kLarge    ? 18
+                   : size == RockSize::kMedium ? 12
+                                               : 8;
+  registry.Defer([position, velocity, dust, &random](Registry& r) {
+    SpawnBurst(r, random, position, velocity, dust, kRockRimColor);
+  });
 
   const std::optional<RockSize> smaller = SplitSize(size);
   if (!smaller) return;
@@ -95,6 +104,40 @@ void GunSystem(Registry& registry, const Input& input, float dt) {
     // Captured by value: `nose` and `shot` are locals that die when this
     // lambda returns, long before Flush() runs the command.
     registry.Defer([nose, shot](Registry& r) { SpawnBullet(r, nose, shot); });
+  });
+}
+
+void ExhaustSystem(Registry& registry, Random& random, float dt) {
+  registry.Each<Ship, Transform, Velocity>([&](Entity, const Ship& ship,
+                                               const Transform& transform,
+                                               const Velocity& velocity) {
+    if (!ship.thrusting) return;
+    // kExhaustRate * dt particles are due this frame, usually a fraction
+    // like 1.5. Make the whole part, then make one more with a chance equal
+    // to the leftover fraction. On average that gives exactly the rate, at
+    // any frame rate.
+    const float due = kExhaustRate * dt;
+    const int whole = static_cast<int>(due);
+    const int count = whole + (random.Chance(due - whole) ? 1 : 0);
+    if (count == 0) return;
+
+    const Vector2 back = HeadingToDirection(transform.rotation + 180.0f);
+    const Vector2 nozzle{transform.position.x + back.x * kShipRadius * 0.7f,
+                         transform.position.y + back.y * kShipRadius * 0.7f};
+    const Vector2 base = velocity.linear;
+    const float heading = transform.rotation;
+    registry.Defer([nozzle, base, heading, count, &random](Registry& r) {
+      for (int i = 0; i < count; ++i) {
+        // Spray backwards in a narrow cone, 20 degrees either side.
+        const Vector2 spray =
+            HeadingToDirection(heading + 180.0f + random.Float(-20.0f, 20.0f));
+        const float speed = random.Float(80.0f, 160.0f);
+        SpawnParticle(
+            r, nozzle,
+            Vector2{base.x + spray.x * speed, base.y + spray.y * speed},
+            random.Float(1.5f, 3.0f), kFlameColor, random.Float(0.2f, 0.4f));
+      }
+    });
   });
 }
 
@@ -197,6 +240,15 @@ CollisionReport CollisionSystem(Registry& registry, Random& random) {
               BreakRock(registry, random, rock);
               registry.Destroy(ship);
               report.ship_destroyed = true;
+
+              // The ship explodes in its own colours. Its velocity is read
+              // now, while the component still exists.
+              const Vector2 position = ship_transform.position;
+              const Vector2 velocity = registry.Get<Velocity>(ship).linear;
+              registry.Defer([position, velocity, &random](Registry& r) {
+                SpawnBurst(r, random, position, velocity, 40, kShipColor);
+                SpawnBurst(r, random, position, velocity, 20, kFlameColor);
+              });
             });
       });
 

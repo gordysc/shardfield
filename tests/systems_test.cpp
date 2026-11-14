@@ -210,6 +210,46 @@ void TestNewShipIsInvulnerable() {
   CHECK(registry.IsAlive(rock));
 }
 
+/// @brief Breaking a rock throws out dust particles, which are pure
+/// composition: nothing but generic components, gone once their Lifetime
+/// runs out.
+void TestBrokenRockLeavesFadingDust() {
+  Registry registry;
+  Random random(6);
+  const Entity rock =
+      SpawnRock(registry, random, RockSize::kSmall, {300, 300}, {0, 0});
+  PlaceRock(registry, rock, {300, 300});
+  SpawnBullet(registry, {300, 300}, {0, 0});
+
+  CollisionSystem(registry, random);
+  registry.Flush();
+  CHECK(registry.Count<FadeOut>() > 0);
+
+  // No particle lives longer than a second.
+  for (int i = 0; i < 70; ++i) {
+    LifetimeSystem(registry, kFrame);
+    registry.Flush();
+  }
+  CHECK(registry.Count<FadeOut>() == 0);
+}
+
+/// @brief Thrusting sprays exhaust particles; coasting doesn't.
+void TestExhaustOnlyWhileThrusting() {
+  Registry registry;
+  Random random(7);
+  SpawnShip(registry, kScreenCenter);
+
+  ShipControlSystem(registry, Input{}, kFrame);
+  ExhaustSystem(registry, random, kFrame);
+  registry.Flush();
+  CHECK(registry.Count<FadeOut>() == 0);
+
+  ShipControlSystem(registry, Input{.thrust = true}, kFrame);
+  ExhaustSystem(registry, random, kFrame);
+  registry.Flush();
+  CHECK(registry.Count<FadeOut>() > 0);
+}
+
 /// @brief Thrust speeds the ship up, and SpeedLimitSystem caps it.
 void TestThrustAndSpeedLimit() {
   Registry registry;
@@ -242,6 +282,8 @@ int main() {
       {"small rock vanishes", TestSmallRockVanishes},
       {"rock destroys ship", TestRockDestroysShip},
       {"new ship is invulnerable", TestNewShipIsInvulnerable},
+      {"broken rock leaves fading dust", TestBrokenRockLeavesFadingDust},
+      {"exhaust only while thrusting", TestExhaustOnlyWhileThrusting},
       {"thrust and speed limit", TestThrustAndSpeedLimit},
   };
   return testing::RunTests(tests);

@@ -44,6 +44,30 @@ Entity SpawnBullet(Registry& registry, Vector2 position, Vector2 velocity);
 Entity SpawnRock(Registry& registry, Random& random, RockSize size,
                  Vector2 position, Vector2 base_velocity);
 
+/// @brief Creates one particle: a small circle that drifts, slows down and
+/// fades away.
+/// @param registry Where to create it.
+/// @param position Where the particle starts.
+/// @param velocity Its velocity in pixels per second.
+/// @param radius Its size in pixels.
+/// @param color Its colour.
+/// @param lifetime Seconds until it has faded out and is destroyed.
+/// @return The new particle.
+Entity SpawnParticle(Registry& registry, Vector2 position, Vector2 velocity,
+                     float radius, Color color, float lifetime);
+
+/// @brief Creates a burst of particles flying out in every direction, for
+/// explosions.
+/// @param registry Where to create them.
+/// @param random Source of the random directions, speeds and sizes.
+/// @param position Centre of the burst.
+/// @param base_velocity Velocity every particle starts with on top of its
+///        own, usually the velocity of whatever exploded.
+/// @param count How many particles to create.
+/// @param color Their colour.
+void SpawnBurst(Registry& registry, Random& random, Vector2 position,
+                Vector2 base_velocity, int count, Color color);
+
 /// @brief Creates large rocks at random spots, none of them close to a
 /// given point.
 /// @param registry Where to create them.

@@ -61,6 +61,30 @@ Entity SpawnRock(Registry& registry, Random& random, RockSize size,
   return rock;
 }
 
+Entity SpawnParticle(Registry& registry, Vector2 position, Vector2 velocity,
+                     float radius, Color color, float lifetime) {
+  const Entity particle = registry.Create();
+  registry.Add(particle, Transform{.position = position});
+  registry.Add(particle, Velocity{.linear = velocity});
+  registry.Add(particle, Drag{.rate = kParticleDrag});
+  registry.Add(particle, Lifetime{.seconds_left = lifetime});
+  registry.Add(particle, CircleSprite{.radius = radius, .color = color});
+  registry.Add(particle, FadeOut{.duration = lifetime});
+  return particle;
+}
+
+void SpawnBurst(Registry& registry, Random& random, Vector2 position,
+                Vector2 base_velocity, int count, Color color) {
+  for (int i = 0; i < count; ++i) {
+    const Vector2 direction = random.Direction();
+    const float speed = random.Float(40.0f, 220.0f);
+    SpawnParticle(registry, position,
+                  Vector2{base_velocity.x + direction.x * speed,
+                          base_velocity.y + direction.y * speed},
+                  random.Float(1.0f, 3.0f), color, random.Float(0.4f, 1.0f));
+  }
+}
+
 void SpawnRocksAwayFrom(Registry& registry, Random& random, int count,
                         Vector2 avoid) {
   for (int i = 0; i < count; ++i) {

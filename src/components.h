@@ -108,6 +108,19 @@ struct CircleSprite {
   Color color{};
 };
 
+/// @brief Fades the entity's sprite out as its Lifetime runs down. Used by
+/// RenderSystem().
+///
+/// Particles are the clearest example of composition in this game: there
+/// is no Particle component at all. A particle is just Transform, Velocity,
+/// Drag, Lifetime, CircleSprite and FadeOut, and every system that handles
+/// one of those already does the right thing.
+struct FadeOut {
+  /// @brief The Lifetime the entity started with, in seconds. Opacity is
+  /// `seconds_left / duration`, so it falls from 1 to 0.
+  float duration = 1.0f;
+};
+
 }  // namespace asteroids
 
 #endif  // ASTEROIDS_COMPONENTS_H_

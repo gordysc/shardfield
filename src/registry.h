@@ -298,6 +298,16 @@ class Registry {
     return Has<T>(entity) ? &PoolFor<T>().Get(entity.index) : nullptr;
   }
 
+  /// @brief Read-only version of TryGet(), used through a `const
+  /// Registry&`.
+  /// @tparam T The component type.
+  /// @param entity The entity.
+  /// @return The component, or nullptr.
+  template <typename T>
+  const T* TryGet(Entity entity) const {
+    return Has<T>(entity) ? &FindPool<T>()->Get(entity.index) : nullptr;
+  }
+
   /// @brief Calls `fn` once for every live entity that has all of the
   /// component types `Ts`.
   ///

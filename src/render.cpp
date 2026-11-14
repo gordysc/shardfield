@@ -20,9 +20,21 @@ void RenderSystem(const Registry& registry) {
                  rock.shape);
       });
 
+  // FadeOut and Lifetime are optional extras here, not requirements: the
+  // loop asks for CircleSprite and Transform, then looks the extras up per
+  // entity. TryGet() returns nullptr for an entity without one. Bullets have
+  // no FadeOut, so they stay solid.
   registry.Each<CircleSprite, Transform>(
-      [](Entity, const CircleSprite& sprite, const Transform& transform) {
-        DrawCircleV(transform.position, sprite.radius, sprite.color);
+      [&registry](Entity entity, const CircleSprite& sprite,
+                  const Transform& transform) {
+        float alpha = 1.0f;
+        const FadeOut* fade = registry.TryGet<FadeOut>(entity);
+        const Lifetime* lifetime = registry.TryGet<Lifetime>(entity);
+        if (fade != nullptr && lifetime != nullptr && fade->duration > 0) {
+          alpha = lifetime->seconds_left / fade->duration;
+        }
+        DrawCircleV(transform.position, sprite.radius,
+                    Fade(sprite.color, alpha));
       });
 
   registry.Each<Ship, Transform>(

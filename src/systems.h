@@ -49,6 +49,17 @@ void ShipControlSystem(Registry& registry, const Input& input, float dt);
 /// @param dt Seconds since the last frame.
 void GunSystem(Registry& registry, const Input& input, float dt);
 
+/// @brief Sprays flame particles behind every Ship that is thrusting.
+///
+/// Needs: Ship, Transform, Velocity. Particles are created at the next
+/// Flush().
+///
+/// @param registry The entities to update.
+/// @param random Source of the particles' random spray. It must outlive the
+///        next Flush(), because the queued spawns use it.
+/// @param dt Seconds since the last frame.
+void ExhaustSystem(Registry& registry, Random& random, float dt);
+
 /// @brief Slows down every entity with Drag.
 ///
 /// Needs: Velocity, Drag.

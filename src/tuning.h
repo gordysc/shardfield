@@ -41,6 +41,11 @@ inline constexpr float kBulletRadius = 3.0f;
 /// @brief Colour of a bullet.
 inline constexpr Color kBulletColor{255, 230, 120, 255};
 
+/// @brief How quickly particles slow down; see DragSystem().
+inline constexpr float kParticleDrag = 2.5f;
+/// @brief Exhaust particles the engine makes per second while thrusting.
+inline constexpr float kExhaustRate = 90.0f;
+
 /// @brief Fraction of a broken rock's velocity that each piece keeps.
 inline constexpr float kSplitInheritance = 0.5f;
 /// @brief Closest a new wave's rock may start to the ship, in pixels.

@@ -93,10 +93,11 @@ void Game::UpdatePlaying(float dt, const Input& input) {
   // into new positions, and collisions then see where everything ended up.
   ShipControlSystem(registry_, input, dt);
   GunSystem(registry_, input, dt);
+  ExhaustSystem(registry_, random_, dt);
   UpdateMotion(dt);
   const CollisionReport report = CollisionSystem(registry_, random_);
-  // Apply everything the systems queued: new bullets and rock pieces, and
-  // the destruction of whatever was hit or ran out of time.
+  // Apply everything the systems queued: new bullets, rock pieces and
+  // particles, and the destruction of whatever was hit or ran out of time.
   registry_.Flush();
 
   score_ += report.points;
