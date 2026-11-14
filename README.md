@@ -4,6 +4,10 @@ Shardfield is a small arena shooter in C++20 with
 [raylib](https://www.raylib.com/). The player flies a ship on a screen that
 wraps at the edges. Bullets break rocks into smaller rocks.
 
+The game is also an introduction to the entity component system (ECS)
+pattern. The git history builds the game in stages, from plain structs to a
+sparse-set ECS. Read [docs/ecs.md](docs/ecs.md) for the guide.
+
 ## Build in CLion
 1. Open this folder in CLion.
 2. Wait for CMake to download raylib. This step needs an internet connection.
