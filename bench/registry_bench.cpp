@@ -116,11 +116,11 @@ int main() {
     registry.Flush();
   });
 
-  std::printf("Each<Position, Speed> over %d entities: %8.1f us\n",
+  std::printf("Each<Position, Speed> over %d entities: %8.2f us\n",
               kCommonCount, common);
-  std::printf("Each<Rare, Position>, %d of %d match:  %8.1f us\n", kRareCount,
+  std::printf("Each<Rare, Position>, %d of %d match:  %8.2f us\n", kRareCount,
               kCommonCount, rare);
-  std::printf("Create + destroy %d entities:         %8.1f us\n",
+  std::printf("Create + destroy %d entities:         %8.2f us\n",
               kChurnPerRepeat, churn);
   std::printf("(checksum %.0f)\n", sum);
   return 0;

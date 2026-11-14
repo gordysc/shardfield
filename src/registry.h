@@ -3,17 +3,20 @@
 
 // Header guard; see screen.h for how it works.
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
-#include <optional>
+#include <span>
 #include <tuple>
 #include <utility>
 #include <vector>
 
 #include "entity.h"
+#include "sparse_set.h"
 
 /// @brief Everything that belongs to the game.
 namespace asteroids {
@@ -46,99 +49,6 @@ class ComponentIds {
   /// @brief The number the next new component type will get. `inline
   /// static` (C++17) defines the variable right here in the header.
   inline static std::size_t next_ = 0;
-};
-
-/// @brief What every component pool can do, whatever type it stores.
-///
-/// The Registry holds pools for many different component types in one
-/// vector. A vector can only hold one type, so it holds pointers to this
-/// shared base class. When an entity is destroyed, the Registry calls
-/// Remove() on every pool without knowing what each one stores. That trick
-/// is called "type erasure".
-class PoolBase {
- public:
-  /// @brief Destroys the pool.
-  ///
-  /// A base class that is deleted through a base pointer (here, by
-  /// std::unique_ptr<PoolBase>) needs a `virtual` destructor. Without it,
-  /// only the base part would be destroyed, the derived pool's vector would
-  /// leak, and the behaviour would be undefined.
-  virtual ~PoolBase() = default;
-
-  /// @brief Removes the component of the entity in slot `index`, if it has
-  /// one.
-  ///
-  /// `= 0` makes this "pure virtual": PoolBase has no body for it, and every
-  /// derived class must provide one.
-  ///
-  /// @param index The entity's slot.
-  virtual void Remove(std::uint32_t index) = 0;
-};
-
-/// @brief Stores every component of type T, one optional slot per entity
-/// slot.
-///
-/// This is the simplest possible layout: `slots_[i]` holds entity i's T, or
-/// nothing. Lookups are instant, but looping over all T means checking every
-/// entity slot, even when only a handful of entities have a T.
-///
-/// `final` means no class may derive from Pool. It also lets the compiler
-/// skip the virtual-call machinery when it knows the exact type.
-///
-/// @tparam T The component type.
-template <typename T>
-class Pool final : public PoolBase {
- public:
-  /// @brief Checks whether slot `index` has a component.
-  /// @param index The entity's slot.
-  /// @return True if it has one.
-  bool Has(std::uint32_t index) const {
-    return index < slots_.size() && slots_[index].has_value();
-  }
-
-  /// @brief Returns the component in slot `index`. The slot must have one.
-  /// @param index The entity's slot.
-  /// @return A reference into the pool. See Registry::Get() for how long it
-  ///         stays valid.
-  T& Get(std::uint32_t index) { return *slots_[index]; }
-
-  /// @brief Read-only version of Get(), used through a `const Pool`.
-  /// @param index The entity's slot.
-  /// @return A const reference into the pool.
-  const T& Get(std::uint32_t index) const { return *slots_[index]; }
-
-  /// @brief Stores a component in slot `index`, replacing any old one.
-  /// @param index The entity's slot.
-  /// @param component The component. Taken by value and then moved in; see
-  ///        Registry::Add().
-  /// @return A reference to the stored component.
-  T& Set(std::uint32_t index, T component) {
-    // resize() adds empty optionals until the slot exists. It can move the
-    // whole vector to a bigger block of memory, which is one reason the
-    // Registry forbids adding components inside Each().
-    if (index >= slots_.size()) slots_.resize(index + 1);
-    // std::move turns `component` into an rvalue, so the optional takes over
-    // its contents instead of copying them. `component` is left "valid but
-    // unspecified", which is fine because we never use it again.
-    slots_[index] = std::move(component);
-    return *slots_[index];
-  }
-
-  /// @brief Removes the component in slot `index`, if any.
-  ///
-  /// `override` asks the compiler to check that this really replaces a
-  /// virtual function in PoolBase. A typo in the name or parameters then
-  /// becomes a compile error instead of a silent new function.
-  ///
-  /// @param index The entity's slot.
-  void Remove(std::uint32_t index) override {
-    // reset() destroys the stored T and leaves the optional empty.
-    if (index < slots_.size()) slots_[index].reset();
-  }
-
- private:
-  /// @brief One optional component per entity slot.
-  std::vector<std::optional<T>> slots_;
 };
 
 /// @brief Owns every entity and component, and finds entities by the
@@ -254,7 +164,7 @@ class Registry {
   /// @return True if the entity exists and has a T.
   template <typename T>
   bool Has(Entity entity) const {
-    const Pool<T>* pool = FindPool<T>();
+    const SparseSet<T>* pool = FindPool<T>();
     return Exists(entity) && pool != nullptr && pool->Has(entity.index);
   }
 
@@ -315,8 +225,10 @@ class Registry {
   /// any number of types. `Fn&&` here is a forwarding reference: it binds to
   /// any callable, temporary or not, without copying it.
   ///
-  /// This version visits every entity slot and checks each pool, so it costs
-  /// time for every entity, even ones with none of the components.
+  /// Each() walks only the smallest of the pools it was asked for. Every
+  /// match must own a component in that pool, so nothing outside it needs
+  /// a look. Asking for <Rock, Transform> among 10 rocks and 20000
+  /// particles visits 10 entities, not 20010.
   ///
   /// @tparam Ts The component types an entity must have.
   /// @tparam Fn The callable's type, deduced from the argument.
@@ -332,18 +244,24 @@ class Registry {
     // Look each pool up once, before the loop. The std::tuple holds one pool
     // pointer per type in `Ts`. The `...` after `&PoolFor<Ts>()` repeats the
     // expression for each type in the pack ("pack expansion"), and
-    // std::get<Pool<A>*>(pools) later picks out the pointer for type A.
-    const std::tuple<Pool<Ts>*...> pools{&PoolFor<Ts>()...};
-    // Index loop, because the slot index is the entity's index. The size is
-    // read once: Create() can't run during Each(), so it can't change.
-    const auto slot_count = static_cast<std::uint32_t>(slots_.size());
-    for (std::uint32_t i = 0; i < slot_count; ++i) {
-      if (!slots_[i].alive || slots_[i].dying) continue;
+    // std::get<SparseSet<A>*>(pools) later picks out the pointer for type A.
+    const std::tuple<SparseSet<Ts>*...> pools{&PoolFor<Ts>()...};
+    // The braces build a std::initializer_list of base-class pointers, one
+    // per pool, so Smallest() can compare pools of different types.
+    const PoolBase* driver = Smallest(
+        {static_cast<const PoolBase*>(std::get<SparseSet<Ts>*>(pools))...});
+    // Range-based `for` over the driver's owners. Safe, because nothing may
+    // add or remove components while Each() runs (see the class comment),
+    // so the vector behind the span can't change under the loop.
+    for (const std::uint32_t i : driver->Owners()) {
+      // Every owner is a live entity (destroying one removes all its
+      // components), but it may be marked for destruction.
+      if (slots_[i].dying) continue;
       // A "fold expression" (C++17): `(test && ...)` expands to
       // `test<A> && test<B> && ...` for every type in the pack.
-      if (!(std::get<Pool<Ts>*>(pools)->Has(i) && ...)) continue;
+      if (!(std::get<SparseSet<Ts>*>(pools)->Has(i) && ...)) continue;
       fn(Entity{i, slots_[i].generation},
-         std::get<Pool<Ts>*>(pools)->Get(i)...);
+         std::get<SparseSet<Ts>*>(pools)->Get(i)...);
     }
   }
 
@@ -358,15 +276,16 @@ class Registry {
   template <typename... Ts, typename Fn>
   void Each(Fn&& fn) const {
     static_assert(sizeof...(Ts) > 0, "Each() needs at least one component");
-    const std::tuple<const Pool<Ts>*...> pools{FindPool<Ts>()...};
+    const std::tuple<const SparseSet<Ts>*...> pools{FindPool<Ts>()...};
     // If any pool doesn't exist yet, no entity can have all the components.
-    if (((std::get<const Pool<Ts>*>(pools) == nullptr) || ...)) return;
-    const auto slot_count = static_cast<std::uint32_t>(slots_.size());
-    for (std::uint32_t i = 0; i < slot_count; ++i) {
-      if (!slots_[i].alive || slots_[i].dying) continue;
-      if (!(std::get<const Pool<Ts>*>(pools)->Has(i) && ...)) continue;
+    if (((std::get<const SparseSet<Ts>*>(pools) == nullptr) || ...)) return;
+    const PoolBase* driver = Smallest({static_cast<const PoolBase*>(
+        std::get<const SparseSet<Ts>*>(pools))...});
+    for (const std::uint32_t i : driver->Owners()) {
+      if (slots_[i].dying) continue;
+      if (!(std::get<const SparseSet<Ts>*>(pools)->Has(i) && ...)) continue;
       fn(Entity{i, slots_[i].generation},
-         std::get<const Pool<Ts>*>(pools)->Get(i)...);
+         std::get<const SparseSet<Ts>*>(pools)->Get(i)...);
     }
   }
 
@@ -425,11 +344,26 @@ class Registry {
   /// @param entity The entity. Must exist.
   void DestroyNow(Entity entity);
 
+  /// @brief Picks the pool with the fewest components.
+  ///
+  /// std::ranges::min (C++20) takes a "projection": a function applied to
+  /// each element before comparing. Here it turns each pool pointer into
+  /// its size, so the pools are compared by size. `{}` means "compare with
+  /// the default, std::ranges::less".
+  ///
+  /// @param pools The pools to choose from. Must not be empty.
+  /// @return The smallest one.
+  static const PoolBase* Smallest(
+      std::initializer_list<const PoolBase*> pools) {
+    return std::ranges::min(pools, {},
+                            [](const PoolBase* pool) { return pool->Size(); });
+  }
+
   /// @brief Returns the pool for component T, creating it on first use.
   /// @tparam T The component type.
   /// @return The pool.
   template <typename T>
-  Pool<T>& PoolFor() {
+  SparseSet<T>& PoolFor() {
     const std::size_t id = ComponentIds::Of<T>();
     if (id >= pools_.size()) pools_.resize(id + 1);
     // std::make_unique allocates the pool on the heap and wraps it in a
@@ -437,20 +371,20 @@ class Registry {
     // destroyed. It replaces a bare `new` that someone has to remember to
     // `delete`. The pools live on the heap, so they stay put even when
     // `pools_` itself grows and moves its pointers around.
-    if (!pools_[id]) pools_[id] = std::make_unique<Pool<T>>();
+    if (!pools_[id]) pools_[id] = std::make_unique<SparseSet<T>>();
     // static_cast from base to derived is safe here because the id is unique
-    // to T, so the pool at this index is always a Pool<T>.
-    return static_cast<Pool<T>&>(*pools_[id]);
+    // to T, so the pool at this index is always a SparseSet<T>.
+    return static_cast<SparseSet<T>&>(*pools_[id]);
   }
 
   /// @brief Returns the pool for component T without creating it.
   /// @tparam T The component type.
   /// @return The pool, or nullptr if no T was ever added.
   template <typename T>
-  const Pool<T>* FindPool() const {
+  const SparseSet<T>* FindPool() const {
     const std::size_t id = ComponentIds::Of<T>();
     if (id >= pools_.size() || !pools_[id]) return nullptr;
-    return static_cast<const Pool<T>*>(pools_[id].get());
+    return static_cast<const SparseSet<T>*>(pools_[id].get());
   }
 
   /// @brief One entry per entity slot ever used.
