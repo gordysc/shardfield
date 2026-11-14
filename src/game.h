@@ -23,6 +23,18 @@ struct Ship {
   float heading;
   /// @brief Whether the engine fired this frame. Only used for drawing.
   bool thrusting;
+  /// @brief Seconds until the gun can fire again. 0 means ready.
+  float fire_cooldown;
+};
+
+/// @brief One bullet fired by the ship.
+struct Bullet {
+  /// @brief Centre of the bullet on screen.
+  Vector2 position;
+  /// @brief Velocity in pixels per second.
+  Vector2 velocity;
+  /// @brief Seconds until the bullet fizzles out.
+  float time_left;
 };
 
 /// @brief The whole game. Owns the ship and the background, and knows how to
@@ -60,6 +72,12 @@ class Game {
   /// @brief Turns and thrusts the ship from the arrow keys, then moves it.
   /// @param dt Seconds since the last frame.
   void UpdateShip(float dt);
+  /// @brief Fires a bullet when SPACE is held and the gun is ready.
+  /// @param dt Seconds since the last frame.
+  void UpdateGun(float dt);
+  /// @brief Moves every bullet and removes the ones that have run out.
+  /// @param dt Seconds since the last frame.
+  void UpdateBullets(float dt);
 
   // Google style ends data member names with an underscore, so inside the
   // methods you can tell `ship_` (part of the Game) from a local variable.
@@ -70,6 +88,9 @@ class Game {
   std::vector<Star> stars_;
   /// @brief The player's ship.
   Ship ship_;
+  /// @brief Bullets in flight. Bullets are added when fired and erased when
+  /// they run out, so this vector grows and shrinks all the time.
+  std::vector<Bullet> bullets_;
 };
 
 }  // namespace asteroids
