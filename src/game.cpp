@@ -93,9 +93,14 @@ void Game::UpdatePlaying(float dt, const Input& input) {
   // into new positions, and collisions then see where everything ended up.
   ShipControlSystem(registry_, input, dt);
   GunSystem(registry_, input, dt);
+  MissileLauncherSystem(registry_, input, dt);
   ExhaustSystem(registry_, random_, dt);
+  HomingSystem(registry_, dt);
+  TrailSystem(registry_, random_, dt);
+  ShieldSystem(registry_, dt);
   UpdateMotion(dt);
   const CollisionReport report = CollisionSystem(registry_, random_);
+  PickupSystem(registry_);
   // Apply everything the systems queued: new bullets, rock pieces and
   // particles, and the destruction of whatever was hit or ran out of time.
   registry_.Flush();
@@ -158,6 +163,15 @@ void Game::DrawHud() const {
   // text straight away and never keep the pointer.
   DrawText(TextFormat("Score: %d", score_), 10, 10, kHudFontSize, RAYWHITE);
   DrawCenteredText(TextFormat("Wave %d", wave_), 10, kHudFontSize, GRAY);
+  // The HUD asks the registry for the launcher instead of keeping its own
+  // copy of the count, so it can never be out of date.
+  int missiles = 0;
+  registry_.Each<MissileLauncher>(
+      [&missiles](Entity, const MissileLauncher& launcher) {
+        missiles += launcher.missiles;
+      });
+  DrawText(TextFormat("Missiles: %d", missiles), 10, 36, kHudFontSize,
+           kMissilePickupColor);
   // One small ship per life left, along the top right.
   for (int i = 0; i < lives_; ++i) {
     DrawShip(Vector2{kScreenWidth - 20.0f - i * 24.0f, 22.0f}, 0.0f, 8.0f,
@@ -171,6 +185,8 @@ void Game::DrawMessage() const {
       DrawCenteredText("SHARDFIELD", 220, 64, RAYWHITE);
       DrawCenteredText("Press SPACE to start", 330, kHudFontSize, GRAY);
       DrawCenteredText("Arrows turn and thrust, SPACE fires, P pauses", 360,
+                       kHudFontSize, GRAY);
+      DrawCenteredText("SHIFT launches a homing missile, if you have one", 390,
                        kHudFontSize, GRAY);
       break;
     case GameState::kPlaying:

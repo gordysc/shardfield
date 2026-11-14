@@ -41,6 +41,40 @@ inline constexpr float kBulletRadius = 3.0f;
 /// @brief Colour of a bullet.
 inline constexpr Color kBulletColor{255, 230, 120, 255};
 
+/// @brief Shortest time between two missiles, in seconds.
+inline constexpr float kMissileInterval = 0.3f;
+/// @brief Missile speed in pixels per second.
+inline constexpr float kMissileSpeed = 380.0f;
+/// @brief Fastest a missile turns, in degrees per second.
+inline constexpr float kMissileTurnRate = 240.0f;
+/// @brief Seconds a missile flies before it burns out.
+inline constexpr float kMissileLifetime = 3.0f;
+/// @brief Radius of a missile in pixels.
+inline constexpr float kMissileRadius = 4.0f;
+/// @brief Colour of a missile.
+inline constexpr Color kMissileColor{255, 96, 96, 255};
+/// @brief Smoke particles a missile leaves per second.
+inline constexpr float kMissileTrailRate = 60.0f;
+/// @brief Colour of a missile's smoke trail.
+inline constexpr Color kSmokeColor{200, 200, 215, 255};
+
+/// @brief Chance that a broken small rock drops a pickup, from 0 to 1.
+inline constexpr float kPickupChance = 0.15f;
+/// @brief Seconds a pickup waits to be collected before it vanishes.
+inline constexpr float kPickupLifetime = 10.0f;
+/// @brief Seconds before vanishing that a pickup starts to blink.
+inline constexpr float kPickupWarningTime = 3.0f;
+/// @brief Radius of a pickup in pixels.
+inline constexpr float kPickupRadius = 12.0f;
+/// @brief Missiles a missile pickup gives.
+inline constexpr int kMissilesPerPickup = 3;
+/// @brief Seconds a shield pickup protects the ship.
+inline constexpr float kShieldDuration = 6.0f;
+/// @brief Colour of a missile pickup.
+inline constexpr Color kMissilePickupColor{255, 120, 120, 255};
+/// @brief Colour of a shield pickup and of the shield ring.
+inline constexpr Color kShieldColor{120, 180, 255, 255};
+
 /// @brief How quickly particles slow down; see DragSystem().
 inline constexpr float kParticleDrag = 2.5f;
 /// @brief Exhaust particles the engine makes per second while thrusting.

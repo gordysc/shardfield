@@ -8,8 +8,9 @@
 /// @brief Everything that belongs to the game.
 namespace asteroids {
 
-/// @brief Draws every visible entity: rocks first, then circle sprites
-/// (bullets and particles), then ships on top.
+/// @brief Draws every visible entity: rocks first, then pickups, circle
+/// sprites (bullets, missiles and particles), ships, and shield rings on
+/// top.
 ///
 /// It takes a `const Registry&`, so it can only read the entities, never
 /// change them, and the compiler enforces that. Call it between raylib's

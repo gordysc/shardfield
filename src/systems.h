@@ -60,6 +60,45 @@ void GunSystem(Registry& registry, const Input& input, float dt);
 /// @param dt Seconds since the last frame.
 void ExhaustSystem(Registry& registry, Random& random, float dt);
 
+/// @brief Launches a homing missile from every ready MissileLauncher that
+/// has missiles left, when the missile key is pressed.
+///
+/// Needs: MissileLauncher, Transform. Missiles are created at the next
+/// Flush().
+///
+/// @param registry The entities to update.
+/// @param input This frame's input.
+/// @param dt Seconds since the last frame.
+void MissileLauncherSystem(Registry& registry, const Input& input, float dt);
+
+/// @brief Turns every Homing entity towards its target, picking the nearest
+/// rock as a new target when the old one is gone.
+///
+/// Needs: Homing, Transform, Velocity.
+///
+/// @param registry The entities to update.
+/// @param dt Seconds since the last frame.
+void HomingSystem(Registry& registry, float dt);
+
+/// @brief Leaves smoke particles behind every TrailEmitter.
+///
+/// Needs: TrailEmitter, Transform. Particles are created at the next
+/// Flush().
+///
+/// @param registry The entities to update.
+/// @param random Source of the particles' random drift. It must outlive the
+///        next Flush(), because the queued spawns use it.
+/// @param dt Seconds since the last frame.
+void TrailSystem(Registry& registry, Random& random, float dt);
+
+/// @brief Counts down every Shield and removes it when it runs out.
+///
+/// Needs: Shield. The component is removed at the next Flush().
+///
+/// @param registry The entities to update.
+/// @param dt Seconds since the last frame.
+void ShieldSystem(Registry& registry, float dt);
+
 /// @brief Slows down every entity with Drag.
 ///
 /// Needs: Velocity, Drag.
@@ -102,14 +141,22 @@ void LifetimeSystem(Registry& registry, float dt);
 /// whatever hit them.
 ///
 /// Needs: Projectile or Ship, plus Transform and Collider; and Rock,
-/// Transform, Collider and Velocity on rocks. Pieces of broken rocks are
-/// created at the next Flush().
+/// Transform, Collider and Velocity on rocks. A ship with a Shield is safe.
+/// Pieces of broken rocks, dust and pickups are created at the next Flush().
 ///
 /// @param registry The entities to check.
 /// @param random Source of the pieces' random shapes and drift. It must
 ///        outlive the next Flush(), because the queued spawns use it.
 /// @return What happened, for scoring.
 CollisionReport CollisionSystem(Registry& registry, Random& random);
+
+/// @brief Gives the ship whatever pickups it touches.
+///
+/// Needs: Ship, Transform, Collider; and Pickup, Transform, Collider on
+/// pickups. A new Shield is added at the next Flush().
+///
+/// @param registry The entities to check.
+void PickupSystem(Registry& registry);
 
 }  // namespace asteroids
 

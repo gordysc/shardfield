@@ -5,6 +5,7 @@
 
 #include <raylib.h>
 
+#include "entity.h"
 #include "rock.h"
 
 /// @brief Everything that belongs to the game.
@@ -83,6 +84,62 @@ struct Ship {
 struct Gun {
   /// @brief Seconds until the gun can fire again. 0 means ready.
   float cooldown = 0.0f;
+};
+
+/// @brief A launcher for homing missiles. Used by MissileLauncherSystem().
+struct MissileLauncher {
+  /// @brief Missiles left. Pickups add more.
+  int missiles = 0;
+  /// @brief Seconds until the launcher can fire again. 0 means ready.
+  float cooldown = 0.0f;
+};
+
+/// @brief Steers the entity towards a target. Used by HomingSystem().
+///
+/// This is why Entity handles carry a generation. `target` is a plain
+/// handle, kept across frames. When the target is destroyed and its slot is
+/// reused by something else, the old handle's generation no longer matches,
+/// so Registry::IsAlive(target) returns false and the missile picks a new
+/// target instead of chasing whatever took over the slot.
+struct Homing {
+  /// @brief What to chase. kNullEntity means "fly straight".
+  Entity target = kNullEntity;
+  /// @brief Fastest the entity can turn, in degrees per second.
+  float turn_rate = 0.0f;
+};
+
+/// @brief Leaves a trail of smoke particles behind the entity. Used by
+/// TrailSystem().
+struct TrailEmitter {
+  /// @brief Particles per second.
+  float rate = 0.0f;
+  /// @brief Colour of the smoke.
+  Color color{};
+};
+
+/// @brief Stops rocks from hurting a ship, and draws a ring around it. Used
+/// by ShieldSystem() and CollisionSystem().
+///
+/// Unlike most components, this one comes and goes during play: a pickup
+/// adds it and ShieldSystem() removes it when it runs out. Whether an entity
+/// has a component is itself a piece of state.
+struct Shield {
+  /// @brief Seconds until the shield runs out.
+  float seconds_left = 0.0f;
+};
+
+/// @brief What a pickup gives the ship that collects it.
+enum class PickupKind {
+  /// @brief More homing missiles.
+  kMissiles,
+  /// @brief A Shield for a few seconds.
+  kShield,
+};
+
+/// @brief Marks a collectable bonus. Used by PickupSystem().
+struct Pickup {
+  /// @brief What the pickup gives.
+  PickupKind kind = PickupKind::kMissiles;
 };
 
 /// @brief A "tag" component: it has no data and only marks the entity as

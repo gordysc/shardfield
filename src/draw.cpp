@@ -133,6 +133,20 @@ void DrawRock(Vector2 position, float rotation, float radius,
   }
 }
 
+void DrawPickup(Vector2 position, float radius, Color color, const char* letter,
+                float alpha) {
+  const Color faded = Fade(color, alpha);
+  // A ring is the area between two circles, drawn from 0 to 360 degrees in
+  // 24 straight segments.
+  DrawRing(position, radius - 3.0f, radius, 0.0f, 360.0f, 24, faded);
+  constexpr int kLetterSize = 16;
+  const int width = MeasureText(letter, kLetterSize);
+  // static_cast<int> drops the fraction, because DrawText() takes whole
+  // pixel positions.
+  DrawText(letter, static_cast<int>(position.x) - width / 2,
+           static_cast<int>(position.y) - kLetterSize / 2, kLetterSize, faded);
+}
+
 void DrawCenteredText(const char* text, int y, int font_size, Color color) {
   // MeasureText returns how many pixels wide the text will be at this size.
   const int x = (kScreenWidth - MeasureText(text, font_size)) / 2;

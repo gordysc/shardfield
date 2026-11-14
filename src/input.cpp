@@ -16,6 +16,8 @@ Input ReadInput() {
       .turn_right = IsKeyDown(KEY_RIGHT),
       .thrust = IsKeyDown(KEY_UP),
       .fire = IsKeyDown(KEY_SPACE),
+      .fire_missile =
+          IsKeyPressed(KEY_LEFT_SHIFT) || IsKeyPressed(KEY_RIGHT_SHIFT),
       .start = IsKeyPressed(KEY_SPACE),
       .pause = IsKeyPressed(KEY_P),
   };

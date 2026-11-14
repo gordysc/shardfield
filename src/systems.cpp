@@ -22,6 +22,49 @@ namespace asteroids {
 // Helpers visible only in this file; see draw.cpp.
 namespace {
 
+/// @brief Works out how many particles an emitter makes this frame.
+///
+/// `rate * dt` particles are due, usually a fraction like 1.5. This makes
+/// the whole part, then one more with a chance equal to the leftover
+/// fraction. On average that gives exactly `rate` per second, at any frame
+/// rate.
+///
+/// @param rate Particles per second.
+/// @param dt Seconds since the last frame.
+/// @param random Source of the chance for the leftover fraction.
+/// @return How many particles to make.
+int ParticlesDue(float rate, float dt, Random& random) {
+  const float due = rate * dt;
+  const int whole = static_cast<int>(due);
+  return whole + (random.Chance(due - whole) ? 1 : 0);
+}
+
+/// @brief Finds the live rock closest to a point.
+///
+/// It takes a `const Registry&`, so the Each() inside is the read-only one.
+/// Calling it from inside another Each() is fine, because it only reads.
+///
+/// @param registry The registry to search.
+/// @param from The point to measure from.
+/// @return The nearest rock, or kNullEntity if there are none.
+Entity NearestRock(const Registry& registry, Vector2 from) {
+  Entity nearest = kNullEntity;
+  // Comparing squared distances gives the same order as real distances and
+  // skips a square root per rock.
+  float nearest_distance_sq = 0.0f;
+  registry.Each<Rock, Transform>(
+      [&](Entity rock, const Rock&, const Transform& transform) {
+        const float dx = transform.position.x - from.x;
+        const float dy = transform.position.y - from.y;
+        const float distance_sq = dx * dx + dy * dy;
+        if (nearest == kNullEntity || distance_sq < nearest_distance_sq) {
+          nearest = rock;
+          nearest_distance_sq = distance_sq;
+        }
+      });
+  return nearest;
+}
+
 /// @brief Destroys a rock and queues its two smaller pieces, if it has any.
 /// @param registry The registry the rock lives in.
 /// @param random Source of the pieces' random shapes and drift.
@@ -43,7 +86,19 @@ void BreakRock(Registry& registry, Random& random, Entity rock) {
   });
 
   const std::optional<RockSize> smaller = SplitSize(size);
-  if (!smaller) return;
+  if (!smaller) {
+    // The smallest rocks sometimes leave a pickup behind. The random choices
+    // are made now and captured by value, so the command needs no Random.
+    if (random.Chance(kPickupChance)) {
+      const PickupKind kind =
+          random.Chance(0.5f) ? PickupKind::kMissiles : PickupKind::kShield;
+      const Vector2 drift{velocity.x * 0.3f, velocity.y * 0.3f};
+      registry.Defer([position, drift, kind](Registry& r) {
+        SpawnPickup(r, position, drift, kind);
+      });
+    }
+    return;
+  }
   const Vector2 inherited{velocity.x * kSplitInheritance,
                           velocity.y * kSplitInheritance};
   // This runs inside an Each() loop, where creating entities isn't allowed,
@@ -112,13 +167,7 @@ void ExhaustSystem(Registry& registry, Random& random, float dt) {
                                                const Transform& transform,
                                                const Velocity& velocity) {
     if (!ship.thrusting) return;
-    // kExhaustRate * dt particles are due this frame, usually a fraction
-    // like 1.5. Make the whole part, then make one more with a chance equal
-    // to the leftover fraction. On average that gives exactly the rate, at
-    // any frame rate.
-    const float due = kExhaustRate * dt;
-    const int whole = static_cast<int>(due);
-    const int count = whole + (random.Chance(due - whole) ? 1 : 0);
+    const int count = ParticlesDue(kExhaustRate, dt, random);
     if (count == 0) return;
 
     const Vector2 back = HeadingToDirection(transform.rotation + 180.0f);
@@ -137,6 +186,97 @@ void ExhaustSystem(Registry& registry, Random& random, float dt) {
             Vector2{base.x + spray.x * speed, base.y + spray.y * speed},
             random.Float(1.5f, 3.0f), kFlameColor, random.Float(0.2f, 0.4f));
       }
+    });
+  });
+}
+
+void MissileLauncherSystem(Registry& registry, const Input& input, float dt) {
+  registry.Each<MissileLauncher, Transform>(
+      [&](Entity, MissileLauncher& launcher, const Transform& transform) {
+        launcher.cooldown = std::max(0.0f, launcher.cooldown - dt);
+        if (!input.fire_missile || launcher.missiles == 0 ||
+            launcher.cooldown > 0) {
+          return;
+        }
+        --launcher.missiles;
+        launcher.cooldown = kMissileInterval;
+
+        const Vector2 direction = HeadingToDirection(transform.rotation);
+        const Vector2 nose{transform.position.x + direction.x * kShipRadius,
+                           transform.position.y + direction.y * kShipRadius};
+        const float heading = transform.rotation;
+        // The target is picked now and its handle captured by value. If a
+        // bullet breaks that rock later this frame, the missile is born with
+        // a stale handle. That is fine: HomingSystem() checks IsAlive()
+        // every frame and picks a new target.
+        const Entity target = NearestRock(registry, transform.position);
+        registry.Defer([nose, heading, target](Registry& r) {
+          SpawnMissile(r, nose, heading, target);
+        });
+      });
+}
+
+void HomingSystem(Registry& registry, float dt) {
+  registry.Each<Homing, Transform, Velocity>(
+      [&](Entity, Homing& homing, Transform& transform, Velocity& velocity) {
+        // The key ECS idea in this game: `homing.target` is a handle kept from
+        // an earlier frame, and the rock it named may be gone. Its slot may
+        // even hold a brand new entity by now. IsAlive() compares generations,
+        // so it reports "gone" in both cases, and the missile picks a fresh
+        // target.
+        if (!registry.IsAlive(homing.target)) {
+          homing.target = NearestRock(registry, transform.position);
+        }
+        // TryGet() returns nullptr when there is no target (kNullEntity) or the
+        // target has no Transform. Either way, fly straight on.
+        const Transform* target = registry.TryGet<Transform>(homing.target);
+        if (target == nullptr) return;
+
+        // Turn the velocity towards the target, but by no more than the turn
+        // rate allows this frame, and keep the speed the same.
+        const float speed = std::hypot(velocity.linear.x, velocity.linear.y);
+        const float current = DirectionToHeading(velocity.linear);
+        const float wanted = DirectionToHeading(
+            Vector2{target->position.x - transform.position.x,
+                    target->position.y - transform.position.y});
+        const float max_turn = homing.turn_rate * dt;
+        const float turn =
+            std::clamp(ShortestTurn(wanted - current), -max_turn, max_turn);
+        const Vector2 direction = HeadingToDirection(current + turn);
+        velocity.linear = Vector2{direction.x * speed, direction.y * speed};
+        transform.rotation = current + turn;
+      });
+}
+
+void TrailSystem(Registry& registry, Random& random, float dt) {
+  registry.Each<TrailEmitter, Transform>([&](Entity, const TrailEmitter& trail,
+                                             const Transform& transform) {
+    const int count = ParticlesDue(trail.rate, dt, random);
+    if (count == 0) return;
+    const Vector2 position = transform.position;
+    const Color color = trail.color;
+    registry.Defer([position, color, count, &random](Registry& r) {
+      for (int i = 0; i < count; ++i) {
+        const Vector2 drift = random.Direction();
+        const float speed = random.Float(5.0f, 25.0f);
+        SpawnParticle(r, position, Vector2{drift.x * speed, drift.y * speed},
+                      random.Float(1.0f, 2.2f), color,
+                      random.Float(0.3f, 0.6f));
+      }
+    });
+  });
+}
+
+void ShieldSystem(Registry& registry, float dt) {
+  registry.Each<Shield>([&registry, dt](Entity entity, Shield& shield) {
+    shield.seconds_left -= dt;
+    if (shield.seconds_left > 0) return;
+    // Remove() isn't allowed inside Each(), so it is deferred. The ship may
+    // be destroyed later this same frame, and then `entity` is no longer
+    // alive when the command runs. The check guards against that; the
+    // destroy removes the Shield anyway.
+    registry.Defer([entity](Registry& r) {
+      if (r.IsAlive(entity)) r.Remove<Shield>(entity);
     });
   });
 }
@@ -227,7 +367,9 @@ CollisionReport CollisionSystem(Registry& registry, Random& random) {
   registry.Each<Ship, Transform, Collider>(
       [&](Entity ship, const Ship& ship_data, const Transform& ship_transform,
           const Collider& ship_collider) {
-        if (ship_data.invulnerable_for > 0) return;
+        if (ship_data.invulnerable_for > 0 || registry.Has<Shield>(ship)) {
+          return;
+        }
         registry.Each<Rock, Transform, Collider>(
             [&](Entity rock, const Rock&, const Transform& rock_transform,
                 const Collider& rock_collider) {
@@ -253,6 +395,51 @@ CollisionReport CollisionSystem(Registry& registry, Random& random) {
       });
 
   return report;
+}
+
+void PickupSystem(Registry& registry) {
+  registry.Each<Ship, Transform, Collider>([&](Entity ship, const Ship&,
+                                               const Transform& ship_transform,
+                                               const Collider& ship_collider) {
+    registry.Each<Pickup, Transform, Collider>(
+        [&](Entity pickup, const Pickup& pickup_data,
+            const Transform& pickup_transform,
+            const Collider& pickup_collider) {
+          if (!CheckCollisionCircles(
+                  ship_transform.position, ship_collider.radius,
+                  pickup_transform.position, pickup_collider.radius)) {
+            return;
+          }
+          registry.Destroy(pickup);
+          switch (pickup_data.kind) {
+            case PickupKind::kMissiles:
+              // Changing a component's value inside Each() is fine. The `if`
+              // with an initializer declares `launcher` only for this `if`.
+              if (MissileLauncher* launcher =
+                      registry.TryGet<MissileLauncher>(ship);
+                  launcher != nullptr) {
+                launcher->missiles += kMissilesPerPickup;
+              }
+              break;
+            case PickupKind::kShield:
+              if (Shield* shield = registry.TryGet<Shield>(ship);
+                  shield != nullptr) {
+                // Already shielded: top it up in place.
+                shield->seconds_left = kShieldDuration;
+              } else {
+                // Adding a component is a structural change, so it waits
+                // for Flush(). The ship might die before then, hence the
+                // IsAlive() check on the captured handle.
+                registry.Defer([ship](Registry& r) {
+                  if (r.IsAlive(ship)) {
+                    r.Add(ship, Shield{.seconds_left = kShieldDuration});
+                  }
+                });
+              }
+              break;
+          }
+        });
+  });
 }
 
 }  // namespace asteroids

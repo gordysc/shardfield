@@ -6,6 +6,7 @@
 
 #include "components.h"
 #include "entity.h"
+#include "geometry.h"
 #include "random.h"
 #include "registry.h"
 #include "rock.h"
@@ -27,6 +28,7 @@ Entity SpawnShip(Registry& registry, Vector2 position) {
   registry.Add(ship, Ship{.thrusting = false,
                           .invulnerable_for = kSpawnInvulnerability});
   registry.Add(ship, Gun{});
+  registry.Add(ship, MissileLauncher{});
   return ship;
 }
 
@@ -41,6 +43,40 @@ Entity SpawnBullet(Registry& registry, Vector2 position, Vector2 velocity) {
   registry.Add(bullet,
                CircleSprite{.radius = kBulletRadius, .color = kBulletColor});
   return bullet;
+}
+
+Entity SpawnMissile(Registry& registry, Vector2 position, float heading,
+                    Entity target) {
+  const Vector2 direction = HeadingToDirection(heading);
+  const Entity missile = registry.Create();
+  registry.Add(missile, Transform{.position = position, .rotation = heading});
+  registry.Add(missile, Velocity{.linear = {direction.x * kMissileSpeed,
+                                            direction.y * kMissileSpeed}});
+  registry.Add(missile, Wraps{.margin = kMissileRadius});
+  registry.Add(missile, Collider{.radius = kMissileRadius});
+  registry.Add(missile, Lifetime{.seconds_left = kMissileLifetime});
+  // Projectile is the same tag bullets have, so CollisionSystem already
+  // knows that missiles break rocks. No collision code changed for them.
+  registry.Add(missile, Projectile{});
+  registry.Add(missile,
+               Homing{.target = target, .turn_rate = kMissileTurnRate});
+  registry.Add(missile,
+               TrailEmitter{.rate = kMissileTrailRate, .color = kSmokeColor});
+  registry.Add(missile,
+               CircleSprite{.radius = kMissileRadius, .color = kMissileColor});
+  return missile;
+}
+
+Entity SpawnPickup(Registry& registry, Vector2 position, Vector2 velocity,
+                   PickupKind kind) {
+  const Entity pickup = registry.Create();
+  registry.Add(pickup, Transform{.position = position});
+  registry.Add(pickup, Velocity{.linear = velocity});
+  registry.Add(pickup, Wraps{.margin = kPickupRadius});
+  registry.Add(pickup, Collider{.radius = kPickupRadius});
+  registry.Add(pickup, Lifetime{.seconds_left = kPickupLifetime});
+  registry.Add(pickup, Pickup{.kind = kind});
+  return pickup;
 }
 
 Entity SpawnRock(Registry& registry, Random& random, RockSize size,

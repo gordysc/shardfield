@@ -5,6 +5,7 @@
 
 #include <raylib.h>
 
+#include "components.h"
 #include "entity.h"
 #include "random.h"
 #include "registry.h"
@@ -32,6 +33,25 @@ Entity SpawnShip(Registry& registry, Vector2 position);
 /// @param velocity Its velocity in pixels per second.
 /// @return The new bullet.
 Entity SpawnBullet(Registry& registry, Vector2 position, Vector2 velocity);
+
+/// @brief Creates a homing missile.
+/// @param registry Where to create it.
+/// @param position Where the missile starts.
+/// @param heading Which way it starts flying, in degrees clockwise from up.
+/// @param target What to chase. Pass kNullEntity to let it pick the
+///        nearest rock itself.
+/// @return The new missile.
+Entity SpawnMissile(Registry& registry, Vector2 position, float heading,
+                    Entity target);
+
+/// @brief Creates a pickup that drifts slowly and vanishes if not collected.
+/// @param registry Where to create it.
+/// @param position Where the pickup appears.
+/// @param velocity Its drift in pixels per second.
+/// @param kind What it gives the ship.
+/// @return The new pickup.
+Entity SpawnPickup(Registry& registry, Vector2 position, Vector2 velocity,
+                   PickupKind kind);
 
 /// @brief Creates a rock with a random shape, spin and drift.
 /// @param registry Where to create it.

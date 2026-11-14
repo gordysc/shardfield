@@ -21,6 +21,9 @@ struct Input {
   bool thrust = false;
   /// @brief Fire the gun. Held.
   bool fire = false;
+  /// @brief Launch a homing missile. True only on the frame the key goes
+  /// down, so each press launches one missile.
+  bool fire_missile = false;
   /// @brief Start a game from the title or game over screen. True only on
   /// the frame the key goes down.
   bool start = false;

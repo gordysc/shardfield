@@ -88,6 +88,15 @@ void DrawShip(Vector2 position, float heading, float radius, bool thrusting,
 void DrawRock(Vector2 position, float rotation, float radius,
               const RockShape& shape);
 
+/// @brief Draws a pickup: a ring with a letter in the middle.
+/// @param position Centre of the pickup.
+/// @param radius Outer radius of the ring.
+/// @param color Colour of the ring and the letter.
+/// @param letter One short label, such as "M".
+/// @param alpha Opacity, from 0 (invisible) to 1 (solid).
+void DrawPickup(Vector2 position, float radius, Color color, const char* letter,
+                float alpha);
+
 /// @brief Draws a line of text centred horizontally on the screen.
 ///
 /// raylib is a C library, so it takes text as `const char*` (a pointer to

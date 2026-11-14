@@ -250,6 +250,126 @@ void TestExhaustOnlyWhileThrusting() {
   CHECK(registry.Count<FadeOut>() > 0);
 }
 
+/// @brief The reason Entity has a generation. A missile's target rock is
+/// destroyed and its slot is reused by a new entity. The missile must notice
+/// that its old handle is dead instead of chasing the newcomer.
+void TestMissileRetargetsWhenTargetDies() {
+  Registry registry;
+  Random random(8);
+  const Entity first_target =
+      SpawnRock(registry, random, RockSize::kLarge, {500, 300}, {0, 0});
+  PlaceRock(registry, first_target, {500, 300});
+  const Entity other_rock =
+      SpawnRock(registry, random, RockSize::kLarge, {100, 600}, {0, 0});
+  PlaceRock(registry, other_rock, {100, 600});
+  const Entity missile = SpawnMissile(registry, {100, 300}, 90, first_target);
+
+  registry.Destroy(first_target);
+  registry.Flush();
+  // The freed slot is reused straight away, by something that has a
+  // Transform but isn't a rock.
+  const Entity newcomer =
+      SpawnParticle(registry, {900, 100}, {0, 0}, 1, WHITE, 5);
+  CHECK(newcomer.index == first_target.index);
+  CHECK(newcomer != first_target);
+
+  HomingSystem(registry, kFrame);
+  const Entity target = registry.Get<Homing>(missile).target;
+  CHECK(target != newcomer);
+  CHECK(target == other_rock);
+}
+
+/// @brief A missile turns towards its target, never faster than its turn
+/// rate, and keeps its speed.
+void TestMissileTurnsTowardsTarget() {
+  Registry registry;
+  Random random(9);
+  const Entity rock =
+      SpawnRock(registry, random, RockSize::kLarge, {400, 300}, {0, 0});
+  PlaceRock(registry, rock, {400, 300});
+  // Heading 0 is straight up; the rock is to the right.
+  const Entity missile = SpawnMissile(registry, {100, 300}, 0, rock);
+
+  HomingSystem(registry, kFrame);
+  const Velocity& velocity = registry.Get<Velocity>(missile);
+  CHECK(velocity.linear.x > 0);
+  CHECK(Near(std::hypot(velocity.linear.x, velocity.linear.y), kMissileSpeed));
+  CHECK(registry.Get<Transform>(missile).rotation <=
+        kMissileTurnRate * kFrame + 0.001f);
+}
+
+/// @brief The launcher only fires when it has missiles, and uses them up.
+void TestLauncherNeedsMissiles() {
+  Registry registry;
+  const Entity ship = SpawnShip(registry, kScreenCenter);
+  const Input launch{.fire_missile = true};
+
+  MissileLauncherSystem(registry, launch, kFrame);
+  registry.Flush();
+  CHECK(registry.Count<Homing>() == 0);
+
+  registry.Get<MissileLauncher>(ship).missiles = 1;
+  MissileLauncherSystem(registry, launch, kFrame);
+  registry.Flush();
+  CHECK(registry.Count<Homing>() == 1);
+  CHECK(registry.Get<MissileLauncher>(ship).missiles == 0);
+}
+
+/// @brief Touching a missile pickup adds missiles and uses the pickup up.
+void TestMissilePickup() {
+  Registry registry;
+  const Entity ship = SpawnShip(registry, {300, 300});
+  const Entity pickup =
+      SpawnPickup(registry, {305, 300}, {0, 0}, PickupKind::kMissiles);
+
+  PickupSystem(registry);
+  registry.Flush();
+  CHECK(!registry.IsAlive(pickup));
+  CHECK(registry.Get<MissileLauncher>(ship).missiles == kMissilesPerPickup);
+}
+
+/// @brief A shield pickup adds a Shield component, which blocks rocks until
+/// ShieldSystem removes it.
+void TestShieldComesAndGoes() {
+  Registry registry;
+  Random random(10);
+  const Entity ship = SpawnShip(registry, {300, 300});
+  registry.Get<Ship>(ship).invulnerable_for = 0;
+  SpawnPickup(registry, {300, 300}, {0, 0}, PickupKind::kShield);
+
+  PickupSystem(registry);
+  // Adding a component is deferred, like creating an entity.
+  CHECK(!registry.Has<Shield>(ship));
+  registry.Flush();
+  CHECK(registry.Has<Shield>(ship));
+
+  const Entity rock =
+      SpawnRock(registry, random, RockSize::kLarge, {300, 300}, {0, 0});
+  PlaceRock(registry, rock, {300, 300});
+  CHECK(!CollisionSystem(registry, random).ship_destroyed);
+  registry.Flush();
+
+  ShieldSystem(registry, kShieldDuration + 0.1f);
+  registry.Flush();
+  CHECK(!registry.Has<Shield>(ship));
+  CHECK(CollisionSystem(registry, random).ship_destroyed);
+  registry.Flush();
+}
+
+/// @brief A shield that runs out on the frame its ship is destroyed. The
+/// deferred Remove() finds a dead handle and must skip it safely.
+void TestShieldExpiryOnDeadShip() {
+  Registry registry;
+  const Entity ship = SpawnShip(registry, {300, 300});
+  registry.Add(ship, Shield{.seconds_left = 0.01f});
+
+  ShieldSystem(registry, kFrame);
+  registry.Destroy(ship);
+  registry.Flush();
+  CHECK(!registry.IsAlive(ship));
+  CHECK(registry.Count<Shield>() == 0);
+}
+
 /// @brief Thrust speeds the ship up, and SpeedLimitSystem caps it.
 void TestThrustAndSpeedLimit() {
   Registry registry;
@@ -284,6 +404,13 @@ int main() {
       {"new ship is invulnerable", TestNewShipIsInvulnerable},
       {"broken rock leaves fading dust", TestBrokenRockLeavesFadingDust},
       {"exhaust only while thrusting", TestExhaustOnlyWhileThrusting},
+      {"missile retargets when target dies",
+       TestMissileRetargetsWhenTargetDies},
+      {"missile turns towards target", TestMissileTurnsTowardsTarget},
+      {"launcher needs missiles", TestLauncherNeedsMissiles},
+      {"missile pickup", TestMissilePickup},
+      {"shield comes and goes", TestShieldComesAndGoes},
+      {"shield expiry on dead ship", TestShieldExpiryOnDeadShip},
       {"thrust and speed limit", TestThrustAndSpeedLimit},
   };
   return testing::RunTests(tests);

@@ -28,6 +28,7 @@ The tests do not open a window.
 - Left and Right arrows: turn the ship.
 - Up arrow: fire the engine.
 - Space: fire the gun. Hold Space to fire again and again.
+- Shift: launch a homing missile, if you have one.
 - P: pause the game, or continue a paused game.
 - Esc: close the game.
 
@@ -35,3 +36,9 @@ The tests do not open a window.
 Break every rock to start the next wave. Each wave has more rocks. A rock
 that touches the ship destroys it, and you lose a life. A new ship blinks
 for a short time, and rocks cannot destroy it while it blinks.
+
+Small rocks sometimes leave a pickup when they break. Fly into a pickup to
+collect it. A pickup blinks before it disappears.
+- **M** gives the ship 3 homing missiles.
+- **S** gives the ship a shield for 6 seconds. Rocks cannot destroy a ship
+  with a shield.

@@ -32,6 +32,33 @@ inline Vector2 HeadingToDirection(float degrees) {
   return Vector2{std::sin(radians), -std::cos(radians)};
 }
 
+/// @brief Turns a direction back into a heading. The opposite of
+/// HeadingToDirection().
+///
+/// std::atan2(y, x) returns the angle of the point (x, y) and, unlike plain
+/// atan(y / x), gets the quadrant right and never divides by zero. The
+/// arguments are swapped and negated here to match our "0 is up, clockwise"
+/// convention.
+///
+/// @param direction Any non-zero vector.
+/// @return The heading in degrees, from -180 to 180.
+inline float DirectionToHeading(Vector2 direction) {
+  return std::atan2(direction.x, -direction.y) * RAD2DEG;
+}
+
+/// @brief Wraps an angle difference into the range -180 to 180 degrees.
+///
+/// Turning from heading 350 to heading 10 is a 20 degree turn clockwise,
+/// not a 340 degree turn anticlockwise. This gives the short way round.
+///
+/// @param degrees Any angle difference.
+/// @return The same turn, from -180 to 180.
+inline float ShortestTurn(float degrees) {
+  // std::remainder (unlike std::fmod) rounds to the nearest whole number of
+  // turns, so the result is already centred on zero.
+  return std::remainder(degrees, 360.0f);
+}
+
 /// @brief Rotates a point around the origin.
 ///
 /// Shapes are described in "local" coordinates, where the shape's centre is
