@@ -1,0 +1,82 @@
+#include "spawn.h"
+
+#include <raylib.h>
+
+#include <cmath>
+
+#include "components.h"
+#include "entity.h"
+#include "random.h"
+#include "registry.h"
+#include "rock.h"
+#include "screen.h"
+#include "tuning.h"
+
+namespace asteroids {
+
+Entity SpawnShip(Registry& registry, Vector2 position) {
+  const Entity ship = registry.Create();
+  // Each Add() call attaches one component. The braces build a temporary
+  // component, which Add() moves into the registry's storage.
+  registry.Add(ship, Transform{.position = position, .rotation = 0.0f});
+  registry.Add(ship, Velocity{});
+  registry.Add(ship, Drag{.rate = kShipDrag});
+  registry.Add(ship, SpeedLimit{.max = kShipMaxSpeed});
+  registry.Add(ship, Wraps{.margin = kShipRadius});
+  registry.Add(ship, Collider{.radius = kShipRadius * kShipHitScale});
+  registry.Add(ship, Ship{.thrusting = false,
+                          .invulnerable_for = kSpawnInvulnerability});
+  registry.Add(ship, Gun{});
+  return ship;
+}
+
+Entity SpawnBullet(Registry& registry, Vector2 position, Vector2 velocity) {
+  const Entity bullet = registry.Create();
+  registry.Add(bullet, Transform{.position = position});
+  registry.Add(bullet, Velocity{.linear = velocity});
+  registry.Add(bullet, Wraps{.margin = kBulletRadius});
+  registry.Add(bullet, Collider{.radius = kBulletRadius});
+  registry.Add(bullet, Lifetime{.seconds_left = kBulletLifetime});
+  registry.Add(bullet, Projectile{});
+  registry.Add(bullet,
+               CircleSprite{.radius = kBulletRadius, .color = kBulletColor});
+  return bullet;
+}
+
+Entity SpawnRock(Registry& registry, Random& random, RockSize size,
+                 Vector2 position, Vector2 base_velocity) {
+  const Vector2 direction = random.Direction();
+  const float speed = RandomRockSpeed(size, random);
+  const float radius = RockRadius(size);
+
+  const Entity rock = registry.Create();
+  registry.Add(
+      rock, Transform{.position = position, .rotation = random.Float(0, 360)});
+  registry.Add(rock, Velocity{.linear = {base_velocity.x + direction.x * speed,
+                                         base_velocity.y + direction.y * speed},
+                              .angular = random.Float(-60.0f, 60.0f)});
+  registry.Add(rock, Wraps{.margin = radius});
+  registry.Add(rock, Collider{.radius = radius});
+  registry.Add(rock, Rock{.size = size, .shape = MakeRockShape(random)});
+  return rock;
+}
+
+void SpawnRocksAwayFrom(Registry& registry, Random& random, int count,
+                        Vector2 avoid) {
+  for (int i = 0; i < count; ++i) {
+    // Pick random spots until one is far enough away. A cap on the attempts
+    // guarantees the loop ends even in some freak case.
+    Vector2 position{};
+    for (int attempt = 0; attempt < 32; ++attempt) {
+      position = Vector2{random.Float(0, kScreenWidth),
+                         random.Float(0, kScreenHeight)};
+      if (std::hypot(position.x - avoid.x, position.y - avoid.y) >
+          kSafeSpawnDistance) {
+        break;
+      }
+    }
+    SpawnRock(registry, random, RockSize::kLarge, position, Vector2{0, 0});
+  }
+}
+
+}  // namespace asteroids

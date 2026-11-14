@@ -42,9 +42,13 @@ target_compile_options(raylib PRIVATE -w)
 add_library(asteroids_core STATIC
     src/draw.cpp
     src/game.cpp
+    src/input.cpp
     src/random.cpp
     src/registry.cpp
+    src/render.cpp
     src/rock.cpp
+    src/spawn.cpp
+    src/systems.cpp
 )
 
 # PUBLIC on an include folder means "use it to build this target, and also
@@ -89,3 +93,8 @@ add_executable(registry_test tests/registry_test.cpp)
 target_link_libraries(registry_test PRIVATE asteroids_core)
 target_compile_options(registry_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME registry_test COMMAND registry_test)
+
+add_executable(systems_test tests/systems_test.cpp)
+target_link_libraries(systems_test PRIVATE asteroids_core)
+target_compile_options(systems_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME systems_test COMMAND systems_test)

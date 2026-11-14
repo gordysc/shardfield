@@ -3,6 +3,7 @@
 #include <random>
 
 #include "game.h"
+#include "input.h"
 #include "screen.h"
 
 /// @brief Opens the game window and runs the game loop until it is closed.
@@ -23,7 +24,7 @@ int main() {
   // them) before the window closes.
   asteroids::Game game(seed_source());
   while (!WindowShouldClose()) {
-    game.Update(GetFrameTime());
+    game.Update(GetFrameTime(), asteroids::ReadInput());
 
     BeginDrawing();
     game.Draw();

@@ -17,6 +17,13 @@ cmake --build build
 ./build/asteroids
 ```
 
+## Run the tests
+Build the project first, then run CTest:
+```bash
+ctest --test-dir build --output-on-failure
+```
+The tests do not open a window.
+
 ## Controls
 - Left and Right arrows: turn the ship.
 - Up arrow: fire the engine.

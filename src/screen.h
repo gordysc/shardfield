@@ -7,6 +7,8 @@
 // (often indirectly, through another header), the #ifndef is false and the
 // contents are skipped, which avoids "redefinition" errors.
 
+#include <raylib.h>
+
 /// @brief Everything that belongs to the game.
 namespace asteroids {
 
@@ -18,6 +20,13 @@ namespace asteroids {
 inline constexpr int kScreenWidth = 960;
 /// @brief Window height in pixels.
 inline constexpr int kScreenHeight = 720;
+
+/// @brief The middle of the screen, where each new ship appears.
+///
+/// raylib.h defines Vector2. Including it here keeps screen.h usable on its
+/// own, because a header should include everything it uses.
+inline constexpr Vector2 kScreenCenter{kScreenWidth / 2.0f,
+                                       kScreenHeight / 2.0f};
 
 }  // namespace asteroids
 
