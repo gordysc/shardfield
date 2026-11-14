@@ -37,7 +37,10 @@ target_compile_options(raylib PRIVATE -w)
 # The game program. Only .cpp files are listed: each one is compiled on its
 # own, and headers are compiled as part of every .cpp file that includes them.
 add_executable(asteroids
+    src/draw.cpp
+    src/game.cpp
     src/main.cpp
+    src/random.cpp
 )
 
 # Link raylib into the game. Linking a CMake target like `raylib` also adds
