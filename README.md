@@ -16,3 +16,15 @@ cmake -S . -B build
 cmake --build build
 ./build/asteroids
 ```
+
+## Controls
+- Left and Right arrows: turn the ship.
+- Up arrow: fire the engine.
+- Space: fire the gun. Hold Space to fire again and again.
+- P: pause the game, or continue a paused game.
+- Esc: close the game.
+
+## How to play
+Break every rock to start the next wave. Each wave has more rocks. A rock
+that touches the ship destroys it, and you lose a life. A new ship blinks
+for a short time, and rocks cannot destroy it while it blinks.

@@ -19,6 +19,9 @@ namespace {
 
 /// @brief Size of the ship, used for drawing and for collisions.
 constexpr float kShipRadius = 14.0f;
+/// @brief Fraction of the ship's radius used for rock collisions. Slightly
+/// smaller than the drawn ship, so near misses feel fair.
+constexpr float kShipHitScale = 0.8f;
 /// @brief How fast the ship turns, in degrees per second.
 constexpr float kShipTurnSpeed = 270.0f;
 /// @brief How fast the engine speeds the ship up, in pixels per second per
@@ -29,6 +32,10 @@ constexpr float kShipMaxSpeed = 420.0f;
 /// @brief How quickly the ship drifts to a stop with the engine off. Higher
 /// is quicker; see UpdateShip().
 constexpr float kShipDrag = 0.8f;
+/// @brief Seconds a new ship can't be hurt.
+constexpr float kSpawnInvulnerability = 2.5f;
+/// @brief Seconds between losing a life and the next ship appearing.
+constexpr float kRespawnDelay = 1.5f;
 /// @brief Seconds between shots while SPACE is held.
 constexpr float kFireInterval = 0.18f;
 /// @brief Bullet speed in pixels per second, on top of the ship's own speed.
@@ -41,12 +48,20 @@ constexpr float kBulletRadius = 3.0f;
 constexpr Color kBulletColor{255, 230, 120, 255};
 /// @brief Where the ship starts: the middle of the screen.
 constexpr Vector2 kScreenCenter{kScreenWidth / 2.0f, kScreenHeight / 2.0f};
-/// @brief How many large rocks the first wave has.
-constexpr int kFirstWaveRocks = 4;
+/// @brief Number of lives the player starts each game with.
+constexpr int kStartingLives = 3;
+/// @brief Most large rocks a wave can start with.
+constexpr int kMaxWaveRocks = 11;
+/// @brief Seconds between clearing a wave and the next one starting.
+constexpr float kWaveDelay = 2.0f;
+/// @brief Seconds the "WAVE n" banner stays up.
+constexpr float kBannerTime = 2.0f;
 /// @brief Closest a new wave's rock may start to the ship, in pixels.
 constexpr float kSafeSpawnDistance = 200.0f;
 /// @brief Fraction of a broken rock's velocity that each piece keeps.
 constexpr float kSplitInheritance = 0.5f;
+/// @brief Font size in pixels for the score and smaller messages.
+constexpr int kHudFontSize = 20;
 
 }  // namespace
 
@@ -58,18 +73,85 @@ constexpr float kSplitInheritance = 0.5f;
 Game::Game(unsigned int seed)
     : random_(seed),
       stars_(MakeStars(random_)),
-      ship_{kScreenCenter, Vector2{0, 0}, 0.0f, false, 0.0f},
-      score_(0) {
-  SpawnWave(kFirstWaveRocks);
+      ship_{},
+      score_(0),
+      lives_(kStartingLives),
+      wave_(0),
+      respawn_timer_(0),
+      next_wave_timer_(0),
+      banner_timer_(0),
+      state_(GameState::kTitle) {
+  // A few rocks drift behind the title screen. The ship isn't alive yet, so
+  // it isn't drawn.
+  SpawnRocks(kMaxWaveRocks / 2);
 }
 
 void Game::Update(float dt) {
-  UpdateShip(dt);
-  UpdateGun(dt);
+  HandleStateKeys();
+  // There is a `case` for every GameState and no `default`, so if a new state
+  // is added later, the compiler warns (-Wswitch) that it is missing.
+  switch (state_) {
+    case GameState::kTitle:
+    case GameState::kGameOver:
+      // Two `case` labels in a row share one body. On these screens the
+      // rocks keep drifting in the background, but nothing can collide.
+      UpdateRocks(dt);
+      break;
+    case GameState::kPlaying:
+      UpdatePlaying(dt);
+      break;
+    case GameState::kPaused:
+      break;
+  }
+}
+
+void Game::HandleStateKeys() {
+  // IsKeyPressed is true only on the frame the key goes down, unlike
+  // IsKeyDown, which stays true for as long as the key is held.
+  switch (state_) {
+    case GameState::kTitle:
+    case GameState::kGameOver:
+      if (IsKeyPressed(KEY_SPACE)) StartGame();
+      break;
+    case GameState::kPlaying:
+      if (IsKeyPressed(KEY_P)) state_ = GameState::kPaused;
+      break;
+    case GameState::kPaused:
+      if (IsKeyPressed(KEY_P)) state_ = GameState::kPlaying;
+      break;
+  }
+}
+
+void Game::StartGame() {
+  score_ = 0;
+  lives_ = kStartingLives;
+  wave_ = 0;
+  // clear() destroys every element but keeps the vector's memory, so the
+  // next game's rocks and bullets don't need fresh allocations.
+  bullets_.clear();
+  rocks_.clear();
+  SpawnShip();
+  StartNextWave();
+  state_ = GameState::kPlaying;
+}
+
+void Game::UpdatePlaying(float dt) {
+  if (ship_.alive) {
+    UpdateShip(dt);
+    UpdateGun(dt);
+  } else {
+    respawn_timer_ -= dt;
+    if (respawn_timer_ <= 0) SpawnShip();
+  }
   UpdateBullets(dt);
   UpdateRocks(dt);
-  HandleBulletHits();
-  if (rocks_.empty()) SpawnWave(kFirstWaveRocks);
+  HandleCollisions();
+
+  banner_timer_ = std::max(0.0f, banner_timer_ - dt);
+  if (rocks_.empty()) {
+    next_wave_timer_ -= dt;
+    if (next_wave_timer_ <= 0) StartNextWave();
+  }
 }
 
 void Game::UpdateShip(float dt) {
@@ -105,6 +187,7 @@ void Game::UpdateShip(float dt) {
   ship_.position.x += ship_.velocity.x * dt;
   ship_.position.y += ship_.velocity.y * dt;
   ship_.position = WrapPosition(ship_.position, kShipRadius);
+  ship_.invulnerable_for = std::max(0.0f, ship_.invulnerable_for - dt);
 }
 
 void Game::UpdateGun(float dt) {
@@ -147,13 +230,14 @@ void Game::UpdateRocks(float dt) {
   }
 }
 
-void Game::HandleBulletHits() {
+void Game::HandleCollisions() {
   // Pieces of broken rocks go into their own vector first. Pushing them
-  // straight into `rocks_` inside the loop below would be a bug: if the
+  // straight into `rocks_` inside the loops below would be a bug: if the
   // vector had to grow, it would move every rock to a new block of memory,
   // and the loop's `rock` reference would dangle (undefined behaviour).
   std::vector<Rock> pieces;
 
+  // --- Bullets against rocks ---
   for (Bullet& bullet : bullets_) {
     if (bullet.time_left <= 0) continue;
     for (Rock& rock : rocks_) {
@@ -164,22 +248,24 @@ void Game::HandleBulletHits() {
                                  RockRadius(rock.size))) {
         continue;
       }
-      rock.broken = true;
-      bullet.time_left = 0;
       score_ += RockPoints(rock.size);
-
-      // `if (init; condition)` (C++17) declares `smaller` just for this
-      // `if`. An optional converts to true when it holds a value, and `*`
-      // reads that value.
-      if (const std::optional<RockSize> smaller = SplitSize(rock.size);
-          smaller) {
-        const Vector2 inherited{rock.velocity.x * kSplitInheritance,
-                                rock.velocity.y * kSplitInheritance};
-        pieces.push_back(MakeRock(*smaller, rock.position, inherited));
-        pieces.push_back(MakeRock(*smaller, rock.position, inherited));
-      }
+      BreakRock(rock, pieces);
+      bullet.time_left = 0;
       // One bullet breaks at most one rock.
       break;
+    }
+  }
+
+  // --- Rocks against the ship ---
+  if (ship_.alive && ship_.invulnerable_for <= 0) {
+    for (Rock& rock : rocks_) {
+      if (rock.broken) continue;
+      if (CheckCollisionCircles(ship_.position, kShipRadius * kShipHitScale,
+                                rock.position, RockRadius(rock.size))) {
+        BreakRock(rock, pieces);
+        DestroyShip();
+        break;
+      }
     }
   }
 
@@ -195,11 +281,56 @@ void Game::HandleBulletHits() {
   rocks_.insert(rocks_.end(), pieces.begin(), pieces.end());
 }
 
+void Game::BreakRock(Rock& rock, std::vector<Rock>& pieces) {
+  // Both parameters are non-const references: the function changes the
+  // caller's rock (marks it broken) and the caller's vector (adds pieces).
+  rock.broken = true;
+  // `if (init; condition)` (C++17) declares `smaller` just for this `if`. An
+  // optional converts to true when it holds a value, and `*` reads it.
+  if (const std::optional<RockSize> smaller = SplitSize(rock.size); smaller) {
+    const Vector2 inherited{rock.velocity.x * kSplitInheritance,
+                            rock.velocity.y * kSplitInheritance};
+    pieces.push_back(MakeRock(*smaller, rock.position, inherited));
+    pieces.push_back(MakeRock(*smaller, rock.position, inherited));
+  }
+}
+
+void Game::DestroyShip() {
+  ship_.alive = false;
+  --lives_;
+  if (lives_ == 0) {
+    state_ = GameState::kGameOver;
+  } else {
+    respawn_timer_ = kRespawnDelay;
+  }
+}
+
+void Game::SpawnShip() {
+  // Designated initializers (C++20) name each field, so the order is easy
+  // to check against the struct.
+  ship_ = Ship{
+      .position = kScreenCenter,
+      .velocity = Vector2{0, 0},
+      .heading = 0.0f,
+      .thrusting = false,
+      .fire_cooldown = 0.0f,
+      .invulnerable_for = kSpawnInvulnerability,
+      .alive = true,
+  };
+}
+
+void Game::StartNextWave() {
+  ++wave_;
+  // std::min caps the count, so late waves don't fill the whole screen.
+  SpawnRocks(std::min(3 + wave_, kMaxWaveRocks));
+  next_wave_timer_ = kWaveDelay;
+  banner_timer_ = kBannerTime;
+}
+
 Rock Game::MakeRock(RockSize size, Vector2 position, Vector2 base_velocity) {
   const Vector2 direction = random_.Direction();
   const float speed = RandomRockSpeed(size, random_);
-  // Designated initializers (C++20) name each field, so the order is easy
-  // to check against the struct. Fields left out (`broken`) get their
+  // Fields left out of the designated initializer (`broken`) get their
   // default member initializer.
   return Rock{
       .position = position,
@@ -212,7 +343,7 @@ Rock Game::MakeRock(RockSize size, Vector2 position, Vector2 base_velocity) {
   };
 }
 
-void Game::SpawnWave(int count) {
+void Game::SpawnRocks(int count) {
   for (int i = 0; i < count; ++i) {
     // Pick random spots until one is far enough from the ship. A cap on the
     // attempts guarantees the loop ends even in some freak case.
@@ -220,8 +351,8 @@ void Game::SpawnWave(int count) {
     for (int attempt = 0; attempt < 32; ++attempt) {
       position = Vector2{random_.Float(0, kScreenWidth),
                          random_.Float(0, kScreenHeight)};
-      if (std::hypot(position.x - ship_.position.x,
-                     position.y - ship_.position.y) > kSafeSpawnDistance) {
+      if (std::hypot(position.x - kScreenCenter.x,
+                     position.y - kScreenCenter.y) > kSafeSpawnDistance) {
         break;
       }
     }
@@ -232,17 +363,67 @@ void Game::SpawnWave(int count) {
 void Game::Draw() const {
   ClearBackground(kBackgroundColor);
   DrawStars(stars_);
+  DrawField();
+  if (state_ != GameState::kTitle) DrawHud();
+  DrawMessage();
+}
+
+void Game::DrawField() const {
+  // `const Rock&` reads each rock without copying it. It has to be const
+  // here anyway: inside a const method, every data member is treated as
+  // const.
   for (const Rock& rock : rocks_) {
     DrawRock(rock.position, rock.rotation, RockRadius(rock.size), rock.shape);
   }
   for (const Bullet& bullet : bullets_) {
     DrawCircleV(bullet.position, kBulletRadius, kBulletColor);
   }
-  DrawShip(ship_.position, ship_.heading, kShipRadius, ship_.thrusting, 1.0f);
+  if (ship_.alive) {
+    // While the ship can't be hurt it blinks: the timer, multiplied up and
+    // cut to a whole number, flips between even and odd 8 times a second.
+    const bool dim = static_cast<int>(ship_.invulnerable_for * 8) % 2 == 1;
+    DrawShip(ship_.position, ship_.heading, kShipRadius, ship_.thrusting,
+             dim ? 0.3f : 1.0f);
+  }
+}
+
+void Game::DrawHud() const {
   // TextFormat works like printf: `%d` is replaced by an int argument. It
   // returns a pointer into a buffer that raylib owns and reuses, so use the
   // text straight away and never keep the pointer.
-  DrawText(TextFormat("Score: %d", score_), 10, 10, 20, RAYWHITE);
+  DrawText(TextFormat("Score: %d", score_), 10, 10, kHudFontSize, RAYWHITE);
+  DrawCenteredText(TextFormat("Wave %d", wave_), 10, kHudFontSize, GRAY);
+  // One small ship per life left, along the top right.
+  for (int i = 0; i < lives_; ++i) {
+    DrawShip(Vector2{kScreenWidth - 20.0f - i * 24.0f, 22.0f}, 0.0f, 8.0f,
+             false, 1.0f);
+  }
+}
+
+void Game::DrawMessage() const {
+  switch (state_) {
+    case GameState::kTitle:
+      DrawCenteredText("SHARDFIELD", 220, 64, RAYWHITE);
+      DrawCenteredText("Press SPACE to start", 330, kHudFontSize, GRAY);
+      DrawCenteredText("Arrows turn and thrust, SPACE fires, P pauses", 360,
+                       kHudFontSize, GRAY);
+      break;
+    case GameState::kPlaying:
+      if (banner_timer_ > 0) {
+        DrawCenteredText(TextFormat("WAVE %d", wave_), 260, 40, RAYWHITE);
+      }
+      break;
+    case GameState::kPaused:
+      DrawCenteredText("PAUSED", 260, 40, RAYWHITE);
+      DrawCenteredText("Press P to resume", 320, kHudFontSize, GRAY);
+      break;
+    case GameState::kGameOver:
+      DrawCenteredText("GAME OVER", 240, 48, RED);
+      DrawCenteredText(TextFormat("Final score: %d", score_), 310, kHudFontSize,
+                       RAYWHITE);
+      DrawCenteredText("Press SPACE to play again", 350, kHudFontSize, GRAY);
+      break;
+  }
 }
 
 }  // namespace asteroids
