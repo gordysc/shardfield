@@ -3,9 +3,9 @@
 
 // Header guard; see screen.h for how it works.
 
+#include "ecs.h"
 #include "input.h"
 #include "random.h"
-#include "registry.h"
 
 /// @brief Everything that belongs to the game.
 namespace asteroids {
@@ -15,7 +15,7 @@ namespace asteroids {
 // nothing about the others, and only sees the components it asks for.
 //
 // The game calls them in a fixed order every frame (see Game::UpdatePlaying)
-// and then calls Registry::Flush(), which applies the spawns and destroys
+// and then calls Flush() from ecs.h, which applies the spawns and destroys
 // that the systems queued.
 
 /// @brief What happened in one frame of collisions, for the game rules
@@ -38,7 +38,7 @@ struct CollisionReport {
 /// @param registry The entities to update.
 /// @param input This frame's input.
 /// @param dt Seconds since the last frame.
-void ShipControlSystem(Registry& registry, const Input& input, float dt);
+void ShipControlSystem(entt::registry& registry, const Input& input, float dt);
 
 /// @brief Fires a bullet from every ready Gun while the fire key is held.
 ///
@@ -47,7 +47,7 @@ void ShipControlSystem(Registry& registry, const Input& input, float dt);
 /// @param registry The entities to update.
 /// @param input This frame's input.
 /// @param dt Seconds since the last frame.
-void GunSystem(Registry& registry, const Input& input, float dt);
+void GunSystem(entt::registry& registry, const Input& input, float dt);
 
 /// @brief Sprays flame particles behind every Ship that is thrusting.
 ///
@@ -58,7 +58,7 @@ void GunSystem(Registry& registry, const Input& input, float dt);
 /// @param random Source of the particles' random spray. It must outlive the
 ///        next Flush(), because the queued spawns use it.
 /// @param dt Seconds since the last frame.
-void ExhaustSystem(Registry& registry, Random& random, float dt);
+void ExhaustSystem(entt::registry& registry, Random& random, float dt);
 
 /// @brief Launches a homing missile from every ready MissileLauncher that
 /// has missiles left, when the missile key is pressed.
@@ -69,7 +69,8 @@ void ExhaustSystem(Registry& registry, Random& random, float dt);
 /// @param registry The entities to update.
 /// @param input This frame's input.
 /// @param dt Seconds since the last frame.
-void MissileLauncherSystem(Registry& registry, const Input& input, float dt);
+void MissileLauncherSystem(entt::registry& registry, const Input& input,
+                           float dt);
 
 /// @brief Turns every Homing entity towards its target, picking the nearest
 /// rock as a new target when the old one is gone.
@@ -78,7 +79,7 @@ void MissileLauncherSystem(Registry& registry, const Input& input, float dt);
 ///
 /// @param registry The entities to update.
 /// @param dt Seconds since the last frame.
-void HomingSystem(Registry& registry, float dt);
+void HomingSystem(entt::registry& registry, float dt);
 
 /// @brief Leaves smoke particles behind every TrailEmitter.
 ///
@@ -89,7 +90,7 @@ void HomingSystem(Registry& registry, float dt);
 /// @param random Source of the particles' random drift. It must outlive the
 ///        next Flush(), because the queued spawns use it.
 /// @param dt Seconds since the last frame.
-void TrailSystem(Registry& registry, Random& random, float dt);
+void TrailSystem(entt::registry& registry, Random& random, float dt);
 
 /// @brief Counts down every Shield and removes it when it runs out.
 ///
@@ -97,7 +98,7 @@ void TrailSystem(Registry& registry, Random& random, float dt);
 ///
 /// @param registry The entities to update.
 /// @param dt Seconds since the last frame.
-void ShieldSystem(Registry& registry, float dt);
+void ShieldSystem(entt::registry& registry, float dt);
 
 /// @brief Slows down every entity with Drag.
 ///
@@ -105,14 +106,14 @@ void ShieldSystem(Registry& registry, float dt);
 ///
 /// @param registry The entities to update.
 /// @param dt Seconds since the last frame.
-void DragSystem(Registry& registry, float dt);
+void DragSystem(entt::registry& registry, float dt);
 
 /// @brief Caps the speed of every entity with a SpeedLimit.
 ///
 /// Needs: Velocity, SpeedLimit.
 ///
 /// @param registry The entities to update.
-void SpeedLimitSystem(Registry& registry);
+void SpeedLimitSystem(entt::registry& registry);
 
 /// @brief Moves and spins every entity by its velocity.
 ///
@@ -120,14 +121,14 @@ void SpeedLimitSystem(Registry& registry);
 ///
 /// @param registry The entities to update.
 /// @param dt Seconds since the last frame.
-void MovementSystem(Registry& registry, float dt);
+void MovementSystem(entt::registry& registry, float dt);
 
 /// @brief Moves entities that left the screen to the opposite edge.
 ///
 /// Needs: Transform, Wraps.
 ///
 /// @param registry The entities to update.
-void WrapSystem(Registry& registry);
+void WrapSystem(entt::registry& registry);
 
 /// @brief Counts down every Lifetime and destroys entities whose time is up.
 ///
@@ -135,7 +136,7 @@ void WrapSystem(Registry& registry);
 ///
 /// @param registry The entities to update.
 /// @param dt Seconds since the last frame.
-void LifetimeSystem(Registry& registry, float dt);
+void LifetimeSystem(entt::registry& registry, float dt);
 
 /// @brief Breaks rocks hit by projectiles or by the ship, and destroys
 /// whatever hit them.
@@ -148,7 +149,7 @@ void LifetimeSystem(Registry& registry, float dt);
 /// @param random Source of the pieces' random shapes and drift. It must
 ///        outlive the next Flush(), because the queued spawns use it.
 /// @return What happened, for scoring.
-CollisionReport CollisionSystem(Registry& registry, Random& random);
+CollisionReport CollisionSystem(entt::registry& registry, Random& random);
 
 /// @brief Gives the ship whatever pickups it touches.
 ///
@@ -156,7 +157,7 @@ CollisionReport CollisionSystem(Registry& registry, Random& random);
 /// pickups. A new Shield is added at the next Flush().
 ///
 /// @param registry The entities to check.
-void PickupSystem(Registry& registry);
+void PickupSystem(entt::registry& registry);
 
 }  // namespace asteroids
 

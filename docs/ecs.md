@@ -153,6 +153,63 @@ cmake --build build-release --target registry_bench
 ./build-release/registry_bench
 ```
 
+## Stage 4: EnTT
+
+The `step-4-entt` branch replaces the hand-made registry with EnTT v3.16.0.
+On this branch, `src/entity.h`, `src/registry.h`, `src/registry.cpp` and
+`src/sparse_set.h` do not exist. The game systems keep the same structure.
+
+### API map
+
+| `main` | EnTT branch |
+|---|---|
+| `Entity` | `entt::entity` (index and version in one 32-bit value) |
+| `kNullEntity` | `entt::null` |
+| `registry.Create()` | `registry.create()` |
+| `registry.Add(e, Velocity{...})` | `registry.emplace<Velocity>(e, Velocity{...})` |
+| `registry.Get<T>(e)` / `TryGet<T>(e)` | `registry.get<T>(e)` / `try_get<T>(e)` |
+| `registry.Has<T>(e)` | `registry.all_of<T>(e)` |
+| `registry.Each<A, B>(fn)` | `registry.view<A, B>(entt::exclude<Dying>).each(fn)` |
+| `registry.IsAlive(e)` | `IsAlive(registry, e)` in `src/ecs.h` |
+| `registry.Destroy(e)` | `Destroy(registry, e)` in `src/ecs.h` |
+| `registry.Defer(fn)` / `Flush()` | `Defer(registry, fn)` / `Flush(registry)` in `src/ecs.h` |
+
+### What EnTT does differently
+
+- EnTT does not give an empty tag type, such as `Projectile`, to the
+  `each()` lambda. The tag only filters the entities.
+- EnTT lets a view loop create entities and add components. It does not let
+  the loop destroy other entities. The `Dying` tag in `src/ecs.h` does the
+  same job as the "dying" flag on `main`.
+- EnTT has no command queue. `src/ecs.h` keeps one in `registry.ctx()`, the
+  place for global data that belongs to no entity.
+- The game still defers new entities to `Flush()`. Without this, a second
+  bullet could hit a new rock piece in the same frame.
+
+### Benchmark
+
+These numbers come from the same benchmark and the same Apple silicon Mac,
+in a Release build:
+
+| Operation | Stage 3 | EnTT view | EnTT group |
+|---|---|---|---|
+| `Position, Speed` loop, 20000 entities | 15–18 µs | 20–29 µs | 12–15 µs |
+| `Rare, Position` loop, 10 matches | 0.01 µs | 0.02 µs | not measured |
+| Create and destroy 1000 entities | 12–14 µs | 26–34 µs | not measured |
+
+A plain EnTT view is not faster than the stage 3 registry here. EnTT does
+more work for each change, because it supports signals and stable
+references. A group keeps two or more pools in the same order, so a loop
+over the group reads each pool from start to end. This makes the common
+loop faster than stage 3.
+
+EnTT gives features that the hand-made registry does not have:
+- Groups, for the fastest loops over pairs of components.
+- Signals, which call a function when a component is added or removed.
+- Snapshots, which save and load a whole registry.
+- Runtime views, which take component types that are not known at compile
+  time.
+
 ## Exercises
 
 These changes practise the ideas in this guide. Each one needs only new

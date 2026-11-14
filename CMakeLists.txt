@@ -29,6 +29,17 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 FetchContent_MakeAvailable(raylib)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
+# Fetch EnTT, the ECS library this branch uses instead of the hand-made
+# Registry on `main`. EnTT is header-only: there is nothing to compile, and
+# linking its target only adds its include folder.
+FetchContent_Declare(
+    EnTT
+    GIT_REPOSITORY https://github.com/skypjack/entt.git
+    GIT_TAG v3.16.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(EnTT)
+
 # Build raylib's own source files with compiler warnings off (-w). They are
 # third-party code we don't change, so the build log only shows warnings
 # from this project's code.
@@ -41,10 +52,10 @@ target_compile_options(raylib PRIVATE -w)
 # .cpp file that includes them.
 add_library(asteroids_core STATIC
     src/draw.cpp
+    src/ecs.cpp
     src/game.cpp
     src/input.cpp
     src/random.cpp
-    src/registry.cpp
     src/render.cpp
     src/rock.cpp
     src/spawn.cpp
@@ -56,11 +67,11 @@ add_library(asteroids_core STATIC
 # find headers such as registry.h.
 target_include_directories(asteroids_core PUBLIC src)
 
-# The core's headers include <raylib.h>, so anything that links the core
-# needs raylib too. PUBLIC passes raylib on to those targets. PRIVATE would
+# The core's headers include <raylib.h> and EnTT's headers, so anything
+# that links the core needs both too. PUBLIC passes raylib on to those targets. PRIVATE would
 # hide it from them, and INTERFACE would pass it on without the core using
 # it itself.
-target_link_libraries(asteroids_core PUBLIC raylib)
+target_link_libraries(asteroids_core PUBLIC raylib EnTT::EnTT)
 
 # macOS system frameworks raylib needs: windows (Cocoa), keyboard and
 # controller input (IOKit), graphics (OpenGL) and frame timing (CoreVideo).
@@ -89,10 +100,10 @@ endforeach()
 # program fails by returning a non-zero exit code).
 enable_testing()
 
-add_executable(registry_test tests/registry_test.cpp)
-target_link_libraries(registry_test PRIVATE asteroids_core)
-target_compile_options(registry_test PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME registry_test COMMAND registry_test)
+add_executable(ecs_test tests/ecs_test.cpp)
+target_link_libraries(ecs_test PRIVATE asteroids_core)
+target_compile_options(ecs_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME ecs_test COMMAND ecs_test)
 
 add_executable(systems_test tests/systems_test.cpp)
 target_link_libraries(systems_test PRIVATE asteroids_core)

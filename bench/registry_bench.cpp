@@ -1,6 +1,6 @@
-// A small benchmark for the entity registry. It measures the three things a
-// game does every frame: loop over a common pair of components, loop over a
-// rare component, and create and destroy short-lived entities.
+// A small benchmark for the entity registry, here EnTT's. It measures the three
+// things a game does every frame: loop over a common pair of components, loop
+// over a rare component, and create and destroy short-lived entities.
 //
 // Build it in Release mode, or the numbers mean little:
 //   cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
@@ -9,10 +9,10 @@
 
 #include <chrono>
 #include <cstdio>
+#include <entt/entity/registry.hpp>
 #include <vector>
 
-#include "entity.h"
-#include "registry.h"
+#include "ecs.h"
 
 namespace asteroids {
 namespace {
@@ -74,14 +74,15 @@ double MicrosecondsPerRun(Fn&& fn) {
 /// @return 0 always.
 int main() {
   using namespace asteroids;
-  Registry registry;
+  entt::registry registry;
+  InitWorld(registry);
   for (int i = 0; i < kCommonCount; ++i) {
-    const Entity e = registry.Create();
-    registry.Add(e, Position{});
-    registry.Add(e, Speed{});
+    const entt::entity e = registry.create();
+    registry.emplace<Position>(e, Position{});
+    registry.emplace<Speed>(e, Speed{});
     // Spread the rare entities through the registry, the way rocks end up
     // scattered among thousands of particles.
-    if (i % (kCommonCount / kRareCount) == 0) registry.Add(e, Rare{});
+    if (i % (kCommonCount / kRareCount) == 0) registry.emplace<Rare>(e, Rare{});
   }
 
   // `sum` collects a result from every loop and is printed at the end. That
@@ -89,31 +90,33 @@ int main() {
   float sum = 0;
 
   const double common = MicrosecondsPerRun([&] {
-    registry.Each<Position, Speed>([](Entity, Position& p, const Speed& s) {
-      p.x += s.x;
-      p.y += s.y;
-    });
+    registry.view<Position, Speed>(entt::exclude<Dying>)
+        .each([](entt::entity, Position& p, const Speed& s) {
+          p.x += s.x;
+          p.y += s.y;
+        });
   });
-  registry.Each<Position>([&sum](Entity, const Position& p) { sum += p.x; });
+  registry.view<Position>(entt::exclude<Dying>)
+      .each([&sum](entt::entity, const Position& p) { sum += p.x; });
 
   const double rare = MicrosecondsPerRun([&] {
-    registry.Each<Rare, Position>(
-        [&sum](Entity, const Rare& r, const Position& p) {
+    registry.view<Rare, Position>(entt::exclude<Dying>)
+        .each([&sum](entt::entity, const Rare& r, const Position& p) {
           sum += static_cast<float>(r.value) + p.y;
         });
   });
 
   const double churn = MicrosecondsPerRun([&] {
-    std::vector<Entity> made;
+    std::vector<entt::entity> made;
     made.reserve(kChurnPerRepeat);
     for (int i = 0; i < kChurnPerRepeat; ++i) {
-      const Entity e = registry.Create();
-      registry.Add(e, Position{});
-      registry.Add(e, Speed{});
+      const entt::entity e = registry.create();
+      registry.emplace<Position>(e, Position{});
+      registry.emplace<Speed>(e, Speed{});
       made.push_back(e);
     }
-    for (const Entity e : made) registry.Destroy(e);
-    registry.Flush();
+    for (const entt::entity e : made) Destroy(registry, e);
+    Flush(registry);
   });
 
   std::printf("Each<Position, Speed> over %d entities: %8.2f us\n",

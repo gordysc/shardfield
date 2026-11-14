@@ -39,7 +39,9 @@ Game::Game(unsigned int seed)
       banner_timer_(0),
       state_(GameState::kTitle) {
   // `registry_` isn't in the list, so its default constructor runs: it
-  // starts empty. A few rocks drift behind the title screen.
+  // starts empty. InitWorld() adds the command queue from ecs.h. Then a
+  // few rocks drift behind the title screen.
+  InitWorld(registry_);
   SpawnRocksAwayFrom(registry_, random_, kMaxWaveRocks / 2, kScreenCenter);
 }
 
@@ -53,7 +55,7 @@ void Game::Update(float dt, const Input& input) {
       // Two `case` labels in a row share one body. On these screens things
       // keep drifting in the background, but nothing collides.
       UpdateMotion(dt);
-      registry_.Flush();
+      Flush(registry_);
       break;
     case GameState::kPlaying:
       UpdatePlaying(dt, input);
@@ -82,7 +84,7 @@ void Game::StartGame() {
   score_ = 0;
   lives_ = kStartingLives;
   wave_ = 0;
-  registry_.Clear();
+  ClearWorld(registry_);
   SpawnShip(registry_, kScreenCenter);
   StartNextWave();
   state_ = GameState::kPlaying;
@@ -103,7 +105,7 @@ void Game::UpdatePlaying(float dt, const Input& input) {
   PickupSystem(registry_);
   // Apply everything the systems queued: new bullets, rock pieces and
   // particles, and the destruction of whatever was hit or ran out of time.
-  registry_.Flush();
+  Flush(registry_);
 
   score_ += report.points;
   if (report.ship_destroyed) {
@@ -118,13 +120,13 @@ void Game::UpdatePlaying(float dt, const Input& input) {
   // The Game doesn't keep a handle to the ship. It asks the registry
   // whether one exists, which also covers the frames between losing a life
   // and the next ship appearing.
-  if (registry_.Count<Ship>() == 0) {
+  if (CountAlive<Ship>(registry_) == 0) {
     respawn_timer_ -= dt;
     if (respawn_timer_ <= 0) SpawnShip(registry_, kScreenCenter);
   }
 
   banner_timer_ = std::max(0.0f, banner_timer_ - dt);
-  if (registry_.Count<Rock>() == 0) {
+  if (CountAlive<Rock>(registry_) == 0) {
     next_wave_timer_ -= dt;
     if (next_wave_timer_ <= 0) StartNextWave();
   }
@@ -151,7 +153,7 @@ void Game::Draw() const {
   ClearBackground(kBackgroundColor);
   DrawStars(stars_);
   // `registry_` is const inside this const method, so this calls the
-  // RenderSystem that takes a `const Registry&`.
+  // RenderSystem that takes a `const entt::registry&`.
   RenderSystem(registry_);
   if (state_ != GameState::kTitle) DrawHud();
   DrawMessage();
@@ -166,8 +168,8 @@ void Game::DrawHud() const {
   // The HUD asks the registry for the launcher instead of keeping its own
   // copy of the count, so it can never be out of date.
   int missiles = 0;
-  registry_.Each<MissileLauncher>(
-      [&missiles](Entity, const MissileLauncher& launcher) {
+  registry_.view<MissileLauncher>(entt::exclude<Dying>)
+      .each([&missiles](entt::entity, const MissileLauncher& launcher) {
         missiles += launcher.missiles;
       });
   DrawText(TextFormat("Missiles: %d", missiles), 10, 36, kHudFontSize,

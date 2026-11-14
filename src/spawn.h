@@ -6,9 +6,8 @@
 #include <raylib.h>
 
 #include "components.h"
-#include "entity.h"
+#include "ecs.h"
 #include "random.h"
-#include "registry.h"
 #include "rock.h"
 
 /// @brief Everything that belongs to the game.
@@ -18,31 +17,34 @@ namespace asteroids {
 // the only place that knows which components make up a ship, a bullet or a
 // rock. ECS libraries often call these "prefabs" or "archetypes".
 //
-// They call Registry::Create() and Add(), so they must not run inside an
-// Each() loop. Systems that spawn things wrap the call in Registry::Defer().
+// EnTT would allow calling them inside a view loop. Systems still wrap the
+// calls in Defer() (see ecs.h), so that new entities appear at Flush(), the
+// same frame rule as on `main`. Without that, a rock piece made by one
+// bullet could be hit by the next bullet in the same frame.
 
 /// @brief Creates the player's ship, briefly unable to be hurt.
 /// @param registry Where to create it.
 /// @param position Where the ship appears.
 /// @return The new ship.
-Entity SpawnShip(Registry& registry, Vector2 position);
+entt::entity SpawnShip(entt::registry& registry, Vector2 position);
 
 /// @brief Creates a bullet.
 /// @param registry Where to create it.
 /// @param position Where the bullet starts.
 /// @param velocity Its velocity in pixels per second.
 /// @return The new bullet.
-Entity SpawnBullet(Registry& registry, Vector2 position, Vector2 velocity);
+entt::entity SpawnBullet(entt::registry& registry, Vector2 position,
+                         Vector2 velocity);
 
 /// @brief Creates a homing missile.
 /// @param registry Where to create it.
 /// @param position Where the missile starts.
 /// @param heading Which way it starts flying, in degrees clockwise from up.
-/// @param target What to chase. Pass kNullEntity to let it pick the
+/// @param target What to chase. Pass entt::null to let it pick the
 ///        nearest rock itself.
 /// @return The new missile.
-Entity SpawnMissile(Registry& registry, Vector2 position, float heading,
-                    Entity target);
+entt::entity SpawnMissile(entt::registry& registry, Vector2 position,
+                          float heading, entt::entity target);
 
 /// @brief Creates a pickup that drifts slowly and vanishes if not collected.
 /// @param registry Where to create it.
@@ -50,8 +52,8 @@ Entity SpawnMissile(Registry& registry, Vector2 position, float heading,
 /// @param velocity Its drift in pixels per second.
 /// @param kind What it gives the ship.
 /// @return The new pickup.
-Entity SpawnPickup(Registry& registry, Vector2 position, Vector2 velocity,
-                   PickupKind kind);
+entt::entity SpawnPickup(entt::registry& registry, Vector2 position,
+                         Vector2 velocity, PickupKind kind);
 
 /// @brief Creates a rock with a random shape, spin and drift.
 /// @param registry Where to create it.
@@ -61,8 +63,8 @@ Entity SpawnPickup(Registry& registry, Vector2 position, Vector2 velocity,
 /// @param base_velocity Velocity to add on top of the random drift. A piece
 ///        of a broken rock inherits some of its parent's.
 /// @return The new rock.
-Entity SpawnRock(Registry& registry, Random& random, RockSize size,
-                 Vector2 position, Vector2 base_velocity);
+entt::entity SpawnRock(entt::registry& registry, Random& random, RockSize size,
+                       Vector2 position, Vector2 base_velocity);
 
 /// @brief Creates one particle: a small circle that drifts, slows down and
 /// fades away.
@@ -73,8 +75,9 @@ Entity SpawnRock(Registry& registry, Random& random, RockSize size,
 /// @param color Its colour.
 /// @param lifetime Seconds until it has faded out and is destroyed.
 /// @return The new particle.
-Entity SpawnParticle(Registry& registry, Vector2 position, Vector2 velocity,
-                     float radius, Color color, float lifetime);
+entt::entity SpawnParticle(entt::registry& registry, Vector2 position,
+                           Vector2 velocity, float radius, Color color,
+                           float lifetime);
 
 /// @brief Creates a burst of particles flying out in every direction, for
 /// explosions.
@@ -85,7 +88,7 @@ Entity SpawnParticle(Registry& registry, Vector2 position, Vector2 velocity,
 ///        own, usually the velocity of whatever exploded.
 /// @param count How many particles to create.
 /// @param color Their colour.
-void SpawnBurst(Registry& registry, Random& random, Vector2 position,
+void SpawnBurst(entt::registry& registry, Random& random, Vector2 position,
                 Vector2 base_velocity, int count, Color color);
 
 /// @brief Creates large rocks at random spots, none of them close to a
@@ -94,7 +97,7 @@ void SpawnBurst(Registry& registry, Random& random, Vector2 position,
 /// @param random Source of the random spots.
 /// @param count How many rocks to create.
 /// @param avoid The point to keep clear, usually where the ship appears.
-void SpawnRocksAwayFrom(Registry& registry, Random& random, int count,
+void SpawnRocksAwayFrom(entt::registry& registry, Random& random, int count,
                         Vector2 avoid);
 
 }  // namespace asteroids

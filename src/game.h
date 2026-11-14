@@ -6,9 +6,9 @@
 #include <vector>
 
 #include "draw.h"
+#include "ecs.h"
 #include "input.h"
 #include "random.h"
-#include "registry.h"
 
 /// @brief Everything that belongs to the game.
 namespace asteroids {
@@ -97,7 +97,7 @@ class Game {
   /// @brief Background stars. They never move, so they aren't entities.
   std::vector<Star> stars_;
   /// @brief Every ship, bullet and rock, with their components.
-  Registry registry_;
+  entt::registry registry_;
   /// @brief Points scored so far this game.
   int score_;
   /// @brief Lives left, including the ship in play.

@@ -8,11 +8,10 @@
 
 #include "components.h"
 #include "draw.h"
-#include "entity.h"
+#include "ecs.h"
 #include "geometry.h"
 #include "input.h"
 #include "random.h"
-#include "registry.h"
 #include "rock.h"
 #include "spawn.h"
 #include "tuning.h"
@@ -41,23 +40,24 @@ int ParticlesDue(float rate, float dt, Random& random) {
 
 /// @brief Finds the live rock closest to a point.
 ///
-/// It takes a `const Registry&`, so the Each() inside is the read-only one.
-/// Calling it from inside another Each() is fine, because it only reads.
+/// It takes a `const entt::registry&`, so the view inside hands out const
+/// components. Calling it from inside another view loop is fine, because it
+/// only reads.
 ///
 /// @param registry The registry to search.
 /// @param from The point to measure from.
-/// @return The nearest rock, or kNullEntity if there are none.
-Entity NearestRock(const Registry& registry, Vector2 from) {
-  Entity nearest = kNullEntity;
+/// @return The nearest rock, or entt::null if there are none.
+entt::entity NearestRock(const entt::registry& registry, Vector2 from) {
+  entt::entity nearest = entt::null;
   // Comparing squared distances gives the same order as real distances and
   // skips a square root per rock.
   float nearest_distance_sq = 0.0f;
-  registry.Each<Rock, Transform>(
-      [&](Entity rock, const Rock&, const Transform& transform) {
+  registry.view<Rock, Transform>(entt::exclude<Dying>)
+      .each([&](entt::entity rock, const Rock&, const Transform& transform) {
         const float dx = transform.position.x - from.x;
         const float dy = transform.position.y - from.y;
         const float distance_sq = dx * dx + dy * dy;
-        if (nearest == kNullEntity || distance_sq < nearest_distance_sq) {
+        if (nearest == entt::null || distance_sq < nearest_distance_sq) {
           nearest = rock;
           nearest_distance_sq = distance_sq;
         }
@@ -69,19 +69,19 @@ Entity NearestRock(const Registry& registry, Vector2 from) {
 /// @param registry The registry the rock lives in.
 /// @param random Source of the pieces' random shapes and drift.
 /// @param rock The rock to break. Must have Rock, Transform and Velocity.
-void BreakRock(Registry& registry, Random& random, Entity rock) {
+void BreakRock(entt::registry& registry, Random& random, entt::entity rock) {
   // Copy out what the pieces need now. After Flush() the rock and its
   // components are gone, so the deferred command can't read them then.
-  const RockSize size = registry.Get<Rock>(rock).size;
-  const Vector2 position = registry.Get<Transform>(rock).position;
-  const Vector2 velocity = registry.Get<Velocity>(rock).linear;
-  registry.Destroy(rock);
+  const RockSize size = registry.get<Rock>(rock).size;
+  const Vector2 position = registry.get<Transform>(rock).position;
+  const Vector2 velocity = registry.get<Velocity>(rock).linear;
+  Destroy(registry, rock);
 
   // Bigger rocks make bigger bursts of dust.
   const int dust = size == RockSize::kLarge    ? 18
                    : size == RockSize::kMedium ? 12
                                                : 8;
-  registry.Defer([position, velocity, dust, &random](Registry& r) {
+  Defer(registry, [position, velocity, dust, &random](entt::registry& r) {
     SpawnBurst(r, random, position, velocity, dust, kRockRimColor);
   });
 
@@ -93,7 +93,7 @@ void BreakRock(Registry& registry, Random& random, Entity rock) {
       const PickupKind kind =
           random.Chance(0.5f) ? PickupKind::kMissiles : PickupKind::kShield;
       const Vector2 drift{velocity.x * 0.3f, velocity.y * 0.3f};
-      registry.Defer([position, drift, kind](Registry& r) {
+      Defer(registry, [position, drift, kind](entt::registry& r) {
         SpawnPickup(r, position, drift, kind);
       });
     }
@@ -101,8 +101,10 @@ void BreakRock(Registry& registry, Random& random, Entity rock) {
   }
   const Vector2 inherited{velocity.x * kSplitInheritance,
                           velocity.y * kSplitInheritance};
-  // This runs inside an Each() loop, where creating entities isn't allowed,
-  // so the spawn is deferred to the next Flush().
+  // This runs inside a view loop. EnTT would allow creating the pieces
+  // right here, but then a second bullet could hit a piece in this same
+  // frame. Deferring them to the next Flush() keeps the frame rule from
+  // `main`: new entities appear after the systems have run.
   //
   // The lambda's capture list decides what it keeps:
   // - `piece_size`, `position` and `inherited` are captured by value
@@ -112,22 +114,23 @@ void BreakRock(Registry& registry, Random& random, Entity rock) {
   //   because the Random (a Game member) outlives the next Flush(). Capturing
   //   a local variable by reference here would leave the lambda pointing at
   //   a dead variable: undefined behaviour.
-  registry.Defer(
-      [piece_size = *smaller, position, inherited, &random](Registry& r) {
-        SpawnRock(r, random, piece_size, position, inherited);
-        SpawnRock(r, random, piece_size, position, inherited);
-      });
+  Defer(registry, [piece_size = *smaller, position, inherited,
+                   &random](entt::registry& r) {
+    SpawnRock(r, random, piece_size, position, inherited);
+    SpawnRock(r, random, piece_size, position, inherited);
+  });
 }
 
 }  // namespace
 
-void ShipControlSystem(Registry& registry, const Input& input, float dt) {
+void ShipControlSystem(entt::registry& registry, const Input& input, float dt) {
   // The lambda is called once per ship. `[&]` captures `input` and `dt` by
-  // reference, which is safe because Each() calls the lambda right away,
-  // while they are still alive. The unnamed `Entity` parameter means "I
+  // reference, which is safe because each() calls the lambda right away,
+  // while they are still alive. The unnamed `entt::entity` parameter means "I
   // don't need the handle".
-  registry.Each<Ship, Transform, Velocity>(
-      [&](Entity, Ship& ship, Transform& transform, Velocity& velocity) {
+  registry.view<Ship, Transform, Velocity>(entt::exclude<Dying>)
+      .each([&](entt::entity, Ship& ship, Transform& transform,
+                Velocity& velocity) {
         if (input.turn_left) transform.rotation -= kShipTurnSpeed * dt;
         if (input.turn_right) transform.rotation += kShipTurnSpeed * dt;
 
@@ -141,58 +144,64 @@ void ShipControlSystem(Registry& registry, const Input& input, float dt) {
       });
 }
 
-void GunSystem(Registry& registry, const Input& input, float dt) {
-  registry.Each<Gun, Transform, Velocity>([&](Entity, Gun& gun,
-                                              const Transform& transform,
-                                              const Velocity& velocity) {
-    gun.cooldown = std::max(0.0f, gun.cooldown - dt);
-    if (!input.fire || gun.cooldown > 0) return;
-    gun.cooldown = kFireInterval;
+void GunSystem(entt::registry& registry, const Input& input, float dt) {
+  registry.view<Gun, Transform, Velocity>(entt::exclude<Dying>)
+      .each([&](entt::entity, Gun& gun, const Transform& transform,
+                const Velocity& velocity) {
+        gun.cooldown = std::max(0.0f, gun.cooldown - dt);
+        if (!input.fire || gun.cooldown > 0) return;
+        gun.cooldown = kFireInterval;
 
-    const Vector2 direction = HeadingToDirection(transform.rotation);
-    // The bullet starts at the nose and adds the shooter's own velocity, so
-    // shots fired while flying forwards don't crawl out of the gun.
-    const Vector2 nose{transform.position.x + direction.x * kShipRadius,
-                       transform.position.y + direction.y * kShipRadius};
-    const Vector2 shot{velocity.linear.x + direction.x * kBulletSpeed,
-                       velocity.linear.y + direction.y * kBulletSpeed};
-    // Captured by value: `nose` and `shot` are locals that die when this
-    // lambda returns, long before Flush() runs the command.
-    registry.Defer([nose, shot](Registry& r) { SpawnBullet(r, nose, shot); });
-  });
+        const Vector2 direction = HeadingToDirection(transform.rotation);
+        // The bullet starts at the nose and adds the shooter's own velocity, so
+        // shots fired while flying forwards don't crawl out of the gun.
+        const Vector2 nose{transform.position.x + direction.x * kShipRadius,
+                           transform.position.y + direction.y * kShipRadius};
+        const Vector2 shot{velocity.linear.x + direction.x * kBulletSpeed,
+                           velocity.linear.y + direction.y * kBulletSpeed};
+        // Captured by value: `nose` and `shot` are locals that die when this
+        // lambda returns, long before Flush() runs the command.
+        Defer(registry,
+              [nose, shot](entt::registry& r) { SpawnBullet(r, nose, shot); });
+      });
 }
 
-void ExhaustSystem(Registry& registry, Random& random, float dt) {
-  registry.Each<Ship, Transform, Velocity>([&](Entity, const Ship& ship,
-                                               const Transform& transform,
-                                               const Velocity& velocity) {
-    if (!ship.thrusting) return;
-    const int count = ParticlesDue(kExhaustRate, dt, random);
-    if (count == 0) return;
+void ExhaustSystem(entt::registry& registry, Random& random, float dt) {
+  registry.view<Ship, Transform, Velocity>(entt::exclude<Dying>)
+      .each([&](entt::entity, const Ship& ship, const Transform& transform,
+                const Velocity& velocity) {
+        if (!ship.thrusting) return;
+        const int count = ParticlesDue(kExhaustRate, dt, random);
+        if (count == 0) return;
 
-    const Vector2 back = HeadingToDirection(transform.rotation + 180.0f);
-    const Vector2 nozzle{transform.position.x + back.x * kShipRadius * 0.7f,
-                         transform.position.y + back.y * kShipRadius * 0.7f};
-    const Vector2 base = velocity.linear;
-    const float heading = transform.rotation;
-    registry.Defer([nozzle, base, heading, count, &random](Registry& r) {
-      for (int i = 0; i < count; ++i) {
-        // Spray backwards in a narrow cone, 20 degrees either side.
-        const Vector2 spray =
-            HeadingToDirection(heading + 180.0f + random.Float(-20.0f, 20.0f));
-        const float speed = random.Float(80.0f, 160.0f);
-        SpawnParticle(
-            r, nozzle,
-            Vector2{base.x + spray.x * speed, base.y + spray.y * speed},
-            random.Float(1.5f, 3.0f), kFlameColor, random.Float(0.2f, 0.4f));
-      }
-    });
-  });
+        const Vector2 back = HeadingToDirection(transform.rotation + 180.0f);
+        const Vector2 nozzle{
+            transform.position.x + back.x * kShipRadius * 0.7f,
+            transform.position.y + back.y * kShipRadius * 0.7f};
+        const Vector2 base = velocity.linear;
+        const float heading = transform.rotation;
+        Defer(registry,
+              [nozzle, base, heading, count, &random](entt::registry& r) {
+                for (int i = 0; i < count; ++i) {
+                  // Spray backwards in a narrow cone, 20 degrees either side.
+                  const Vector2 spray = HeadingToDirection(
+                      heading + 180.0f + random.Float(-20.0f, 20.0f));
+                  const float speed = random.Float(80.0f, 160.0f);
+                  SpawnParticle(r, nozzle,
+                                Vector2{base.x + spray.x * speed,
+                                        base.y + spray.y * speed},
+                                random.Float(1.5f, 3.0f), kFlameColor,
+                                random.Float(0.2f, 0.4f));
+                }
+              });
+      });
 }
 
-void MissileLauncherSystem(Registry& registry, const Input& input, float dt) {
-  registry.Each<MissileLauncher, Transform>(
-      [&](Entity, MissileLauncher& launcher, const Transform& transform) {
+void MissileLauncherSystem(entt::registry& registry, const Input& input,
+                           float dt) {
+  registry.view<MissileLauncher, Transform>(entt::exclude<Dying>)
+      .each([&](entt::entity, MissileLauncher& launcher,
+                const Transform& transform) {
         launcher.cooldown = std::max(0.0f, launcher.cooldown - dt);
         if (!input.fire_missile || launcher.missiles == 0 ||
             launcher.cooldown > 0) {
@@ -209,27 +218,28 @@ void MissileLauncherSystem(Registry& registry, const Input& input, float dt) {
         // bullet breaks that rock later this frame, the missile is born with
         // a stale handle. That is fine: HomingSystem() checks IsAlive()
         // every frame and picks a new target.
-        const Entity target = NearestRock(registry, transform.position);
-        registry.Defer([nose, heading, target](Registry& r) {
+        const entt::entity target = NearestRock(registry, transform.position);
+        Defer(registry, [nose, heading, target](entt::registry& r) {
           SpawnMissile(r, nose, heading, target);
         });
       });
 }
 
-void HomingSystem(Registry& registry, float dt) {
-  registry.Each<Homing, Transform, Velocity>(
-      [&](Entity, Homing& homing, Transform& transform, Velocity& velocity) {
+void HomingSystem(entt::registry& registry, float dt) {
+  registry.view<Homing, Transform, Velocity>(entt::exclude<Dying>)
+      .each([&](entt::entity, Homing& homing, Transform& transform,
+                Velocity& velocity) {
         // The key ECS idea in this game: `homing.target` is a handle kept from
         // an earlier frame, and the rock it named may be gone. Its slot may
-        // even hold a brand new entity by now. IsAlive() compares generations,
+        // even hold a brand new entity by now. IsAlive() compares versions,
         // so it reports "gone" in both cases, and the missile picks a fresh
         // target.
-        if (!registry.IsAlive(homing.target)) {
+        if (!IsAlive(registry, homing.target)) {
           homing.target = NearestRock(registry, transform.position);
         }
-        // TryGet() returns nullptr when there is no target (kNullEntity) or the
+        // try_get() returns nullptr when there is no target (entt::null) or the
         // target has no Transform. Either way, fly straight on.
-        const Transform* target = registry.TryGet<Transform>(homing.target);
+        const Transform* target = registry.try_get<Transform>(homing.target);
         if (target == nullptr) return;
 
         // Turn the velocity towards the target, but by no more than the turn
@@ -248,42 +258,46 @@ void HomingSystem(Registry& registry, float dt) {
       });
 }
 
-void TrailSystem(Registry& registry, Random& random, float dt) {
-  registry.Each<TrailEmitter, Transform>([&](Entity, const TrailEmitter& trail,
-                                             const Transform& transform) {
-    const int count = ParticlesDue(trail.rate, dt, random);
-    if (count == 0) return;
-    const Vector2 position = transform.position;
-    const Color color = trail.color;
-    registry.Defer([position, color, count, &random](Registry& r) {
-      for (int i = 0; i < count; ++i) {
-        const Vector2 drift = random.Direction();
-        const float speed = random.Float(5.0f, 25.0f);
-        SpawnParticle(r, position, Vector2{drift.x * speed, drift.y * speed},
-                      random.Float(1.0f, 2.2f), color,
-                      random.Float(0.3f, 0.6f));
-      }
-    });
-  });
+void TrailSystem(entt::registry& registry, Random& random, float dt) {
+  registry.view<TrailEmitter, Transform>(entt::exclude<Dying>)
+      .each([&](entt::entity, const TrailEmitter& trail,
+                const Transform& transform) {
+        const int count = ParticlesDue(trail.rate, dt, random);
+        if (count == 0) return;
+        const Vector2 position = transform.position;
+        const Color color = trail.color;
+        Defer(registry, [position, color, count, &random](entt::registry& r) {
+          for (int i = 0; i < count; ++i) {
+            const Vector2 drift = random.Direction();
+            const float speed = random.Float(5.0f, 25.0f);
+            SpawnParticle(
+                r, position, Vector2{drift.x * speed, drift.y * speed},
+                random.Float(1.0f, 2.2f), color, random.Float(0.3f, 0.6f));
+          }
+        });
+      });
 }
 
-void ShieldSystem(Registry& registry, float dt) {
-  registry.Each<Shield>([&registry, dt](Entity entity, Shield& shield) {
-    shield.seconds_left -= dt;
-    if (shield.seconds_left > 0) return;
-    // Remove() isn't allowed inside Each(), so it is deferred. The ship may
-    // be destroyed later this same frame, and then `entity` is no longer
-    // alive when the command runs. The check guards against that; the
-    // destroy removes the Shield anyway.
-    registry.Defer([entity](Registry& r) {
-      if (r.IsAlive(entity)) r.Remove<Shield>(entity);
-    });
-  });
+void ShieldSystem(entt::registry& registry, float dt) {
+  registry.view<Shield>(entt::exclude<Dying>)
+      .each([&registry, dt](entt::entity entity, Shield& shield) {
+        shield.seconds_left -= dt;
+        if (shield.seconds_left > 0) return;
+        // EnTT allows removing the current entity's components inside each(),
+        // but it is deferred anyway, so the shield lasts until the end of the
+        // frame like everything else. The ship may
+        // be destroyed later this same frame, and then `entity` is no longer
+        // alive when the command runs. The check guards against that; the
+        // destroy removes the Shield anyway.
+        Defer(registry, [entity](entt::registry& r) {
+          if (IsAlive(r, entity)) r.remove<Shield>(entity);
+        });
+      });
 }
 
-void DragSystem(Registry& registry, float dt) {
-  registry.Each<Velocity, Drag>(
-      [dt](Entity, Velocity& velocity, const Drag& drag) {
+void DragSystem(entt::registry& registry, float dt) {
+  registry.view<Velocity, Drag>(entt::exclude<Dying>)
+      .each([dt](entt::entity, Velocity& velocity, const Drag& drag) {
         // Each second, the velocity shrinks to exp(-rate) of what it was.
         // Using exp() instead of "multiply by 0.99 each frame" makes the
         // slowdown the same whatever the frame rate.
@@ -293,9 +307,9 @@ void DragSystem(Registry& registry, float dt) {
       });
 }
 
-void SpeedLimitSystem(Registry& registry) {
-  registry.Each<Velocity, SpeedLimit>(
-      [](Entity, Velocity& velocity, const SpeedLimit& limit) {
+void SpeedLimitSystem(entt::registry& registry) {
+  registry.view<Velocity, SpeedLimit>(entt::exclude<Dying>)
+      .each([](entt::entity, Velocity& velocity, const SpeedLimit& limit) {
         // std::hypot(x, y) is sqrt(x * x + y * y): the speed.
         const float speed = std::hypot(velocity.linear.x, velocity.linear.y);
         if (speed <= limit.max) return;
@@ -305,89 +319,95 @@ void SpeedLimitSystem(Registry& registry) {
       });
 }
 
-void MovementSystem(Registry& registry, float dt) {
+void MovementSystem(entt::registry& registry, float dt) {
   // `[dt]` captures only `dt`, by value: a copy of one float. Naming exactly
   // what a lambda captures documents what it depends on.
-  registry.Each<Transform, Velocity>(
-      [dt](Entity, Transform& transform, const Velocity& velocity) {
+  registry.view<Transform, Velocity>(entt::exclude<Dying>)
+      .each([dt](entt::entity, Transform& transform, const Velocity& velocity) {
         transform.position.x += velocity.linear.x * dt;
         transform.position.y += velocity.linear.y * dt;
         transform.rotation += velocity.angular * dt;
       });
 }
 
-void WrapSystem(Registry& registry) {
-  registry.Each<Transform, Wraps>(
-      [](Entity, Transform& transform, const Wraps& wraps) {
+void WrapSystem(entt::registry& registry) {
+  registry.view<Transform, Wraps>(entt::exclude<Dying>)
+      .each([](entt::entity, Transform& transform, const Wraps& wraps) {
         transform.position = WrapPosition(transform.position, wraps.margin);
       });
 }
 
-void LifetimeSystem(Registry& registry, float dt) {
+void LifetimeSystem(entt::registry& registry, float dt) {
   // `[&registry, dt]` captures the registry by reference (it must not be
   // copied, and copying is deleted anyway) and `dt` by value.
-  registry.Each<Lifetime>([&registry, dt](Entity entity, Lifetime& lifetime) {
-    lifetime.seconds_left -= dt;
-    // Destroy() inside Each() is allowed: it only marks the entity.
-    if (lifetime.seconds_left <= 0) registry.Destroy(entity);
-  });
+  registry.view<Lifetime>(entt::exclude<Dying>)
+      .each([&registry, dt](entt::entity entity, Lifetime& lifetime) {
+        lifetime.seconds_left -= dt;
+        // Destroy() from ecs.h is safe inside each(): it only tags the entity.
+        if (lifetime.seconds_left <= 0) Destroy(registry, entity);
+      });
 }
 
-CollisionReport CollisionSystem(Registry& registry, Random& random) {
+CollisionReport CollisionSystem(entt::registry& registry, Random& random) {
   CollisionReport report;
 
   // --- Projectiles against rocks ---
-  // Two Each() loops nest: for every projectile, check every rock. That is
+  // Two view loops nest: for every projectile, check every rock. That is
   // fine for a few dozen of each. Thousands would need a spatial grid so
   // that each projectile only checks nearby rocks.
-  registry.Each<Projectile, Transform, Collider>(
-      [&](Entity shot, Projectile&, const Transform& shot_transform,
-          const Collider& shot_collider) {
-        registry.Each<Rock, Transform, Collider>(
-            [&](Entity rock, const Rock& rock_data,
-                const Transform& rock_transform,
-                const Collider& rock_collider) {
-              // Each() has no `break`. Once this shot has hit a rock it is
-              // marked dying, so this check skips the remaining rocks.
-              if (!registry.IsAlive(shot)) return;
-              if (!CheckCollisionCircles(
-                      shot_transform.position, shot_collider.radius,
-                      rock_transform.position, rock_collider.radius)) {
-                return;
-              }
-              report.points += RockPoints(rock_data.size);
-              // Breaking marks the rock dying, so later shots in this loop
-              // skip it and can't score it twice.
-              BreakRock(registry, random, rock);
-              registry.Destroy(shot);
-            });
-      });
+  registry.view<Projectile, Transform, Collider>(entt::exclude<Dying>)
+      .each(
+          // Projectile is an empty "tag" type, so EnTT leaves it out of the
+          // lambda's parameters: it only filters which entities are visited.
+          [&](entt::entity shot, const Transform& shot_transform,
+              const Collider& shot_collider) {
+            registry.view<Rock, Transform, Collider>(entt::exclude<Dying>)
+                .each([&](entt::entity rock, const Rock& rock_data,
+                          const Transform& rock_transform,
+                          const Collider& rock_collider) {
+                  // each() has no `break`. Once this shot has hit a rock it is
+                  // marked dying, so this check skips the remaining rocks.
+                  if (!IsAlive(registry, shot)) return;
+                  if (!CheckCollisionCircles(
+                          shot_transform.position, shot_collider.radius,
+                          rock_transform.position, rock_collider.radius)) {
+                    return;
+                  }
+                  report.points += RockPoints(rock_data.size);
+                  // Breaking marks the rock dying, so later shots in this loop
+                  // skip it and can't score it twice.
+                  BreakRock(registry, random, rock);
+                  Destroy(registry, shot);
+                });
+          });
 
   // --- Rocks against the ship ---
-  registry.Each<Ship, Transform, Collider>(
-      [&](Entity ship, const Ship& ship_data, const Transform& ship_transform,
-          const Collider& ship_collider) {
-        if (ship_data.invulnerable_for > 0 || registry.Has<Shield>(ship)) {
+  registry.view<Ship, Transform, Collider>(entt::exclude<Dying>)
+      .each([&](entt::entity ship, const Ship& ship_data,
+                const Transform& ship_transform,
+                const Collider& ship_collider) {
+        if (ship_data.invulnerable_for > 0 || registry.all_of<Shield>(ship)) {
           return;
         }
-        registry.Each<Rock, Transform, Collider>(
-            [&](Entity rock, const Rock&, const Transform& rock_transform,
-                const Collider& rock_collider) {
-              if (!registry.IsAlive(ship)) return;
+        registry.view<Rock, Transform, Collider>(entt::exclude<Dying>)
+            .each([&](entt::entity rock, const Rock&,
+                      const Transform& rock_transform,
+                      const Collider& rock_collider) {
+              if (!IsAlive(registry, ship)) return;
               if (!CheckCollisionCircles(
                       ship_transform.position, ship_collider.radius,
                       rock_transform.position, rock_collider.radius)) {
                 return;
               }
               BreakRock(registry, random, rock);
-              registry.Destroy(ship);
+              Destroy(registry, ship);
               report.ship_destroyed = true;
 
               // The ship explodes in its own colours. Its velocity is read
               // now, while the component still exists.
               const Vector2 position = ship_transform.position;
-              const Vector2 velocity = registry.Get<Velocity>(ship).linear;
-              registry.Defer([position, velocity, &random](Registry& r) {
+              const Vector2 velocity = registry.get<Velocity>(ship).linear;
+              Defer(registry, [position, velocity, &random](entt::registry& r) {
                 SpawnBurst(r, random, position, velocity, 40, kShipColor);
                 SpawnBurst(r, random, position, velocity, 20, kFlameColor);
               });
@@ -397,49 +417,51 @@ CollisionReport CollisionSystem(Registry& registry, Random& random) {
   return report;
 }
 
-void PickupSystem(Registry& registry) {
-  registry.Each<Ship, Transform, Collider>([&](Entity ship, const Ship&,
-                                               const Transform& ship_transform,
-                                               const Collider& ship_collider) {
-    registry.Each<Pickup, Transform, Collider>(
-        [&](Entity pickup, const Pickup& pickup_data,
-            const Transform& pickup_transform,
-            const Collider& pickup_collider) {
-          if (!CheckCollisionCircles(
-                  ship_transform.position, ship_collider.radius,
-                  pickup_transform.position, pickup_collider.radius)) {
-            return;
-          }
-          registry.Destroy(pickup);
-          switch (pickup_data.kind) {
-            case PickupKind::kMissiles:
-              // Changing a component's value inside Each() is fine. The `if`
-              // with an initializer declares `launcher` only for this `if`.
-              if (MissileLauncher* launcher =
-                      registry.TryGet<MissileLauncher>(ship);
-                  launcher != nullptr) {
-                launcher->missiles += kMissilesPerPickup;
+void PickupSystem(entt::registry& registry) {
+  registry.view<Ship, Transform, Collider>(entt::exclude<Dying>)
+      .each([&](entt::entity ship, const Ship&, const Transform& ship_transform,
+                const Collider& ship_collider) {
+        registry.view<Pickup, Transform, Collider>(entt::exclude<Dying>)
+            .each([&](entt::entity pickup, const Pickup& pickup_data,
+                      const Transform& pickup_transform,
+                      const Collider& pickup_collider) {
+              if (!CheckCollisionCircles(
+                      ship_transform.position, ship_collider.radius,
+                      pickup_transform.position, pickup_collider.radius)) {
+                return;
               }
-              break;
-            case PickupKind::kShield:
-              if (Shield* shield = registry.TryGet<Shield>(ship);
-                  shield != nullptr) {
-                // Already shielded: top it up in place.
-                shield->seconds_left = kShieldDuration;
-              } else {
-                // Adding a component is a structural change, so it waits
-                // for Flush(). The ship might die before then, hence the
-                // IsAlive() check on the captured handle.
-                registry.Defer([ship](Registry& r) {
-                  if (r.IsAlive(ship)) {
-                    r.Add(ship, Shield{.seconds_left = kShieldDuration});
+              Destroy(registry, pickup);
+              switch (pickup_data.kind) {
+                case PickupKind::kMissiles:
+                  // Changing a component's value inside each() is fine. The
+                  // `if` with an initializer declares `launcher` only for this
+                  // `if`.
+                  if (MissileLauncher* launcher =
+                          registry.try_get<MissileLauncher>(ship);
+                      launcher != nullptr) {
+                    launcher->missiles += kMissilesPerPickup;
                   }
-                });
+                  break;
+                case PickupKind::kShield:
+                  if (Shield* shield = registry.try_get<Shield>(ship);
+                      shield != nullptr) {
+                    // Already shielded: top it up in place.
+                    shield->seconds_left = kShieldDuration;
+                  } else {
+                    // Adding a component is a structural change, so it waits
+                    // for Flush(). The ship might die before then, hence the
+                    // IsAlive() check on the captured handle.
+                    Defer(registry, [ship](entt::registry& r) {
+                      if (IsAlive(r, ship)) {
+                        r.emplace<Shield>(
+                            ship, Shield{.seconds_left = kShieldDuration});
+                      }
+                    });
+                  }
+                  break;
               }
-              break;
-          }
-        });
-  });
+            });
+      });
 }
 
 }  // namespace asteroids

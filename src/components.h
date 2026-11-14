@@ -5,7 +5,8 @@
 
 #include <raylib.h>
 
-#include "entity.h"
+#include <entt/entity/entity.hpp>
+
 #include "rock.h"
 
 /// @brief Everything that belongs to the game.
@@ -96,14 +97,15 @@ struct MissileLauncher {
 
 /// @brief Steers the entity towards a target. Used by HomingSystem().
 ///
-/// This is why Entity handles carry a generation. `target` is a plain
-/// handle, kept across frames. When the target is destroyed and its slot is
-/// reused by something else, the old handle's generation no longer matches,
-/// so Registry::IsAlive(target) returns false and the missile picks a new
-/// target instead of chasing whatever took over the slot.
+/// This is why entity handles carry a version (EnTT's word for a
+/// generation). `target` is a plain handle, kept across frames. When the
+/// target is destroyed and its slot is reused by something else, the old
+/// handle's version no longer matches. IsAlive(registry, target) in ecs.h
+/// then returns false, and the missile picks a new target instead of
+/// chasing whatever took over the slot.
 struct Homing {
-  /// @brief What to chase. kNullEntity means "fly straight".
-  Entity target = kNullEntity;
+  /// @brief What to chase. entt::null means "fly straight".
+  entt::entity target = entt::null;
   /// @brief Fastest the entity can turn, in degrees per second.
   float turn_rate = 0.0f;
 };
