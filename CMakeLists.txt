@@ -98,3 +98,11 @@ add_executable(systems_test tests/systems_test.cpp)
 target_link_libraries(systems_test PRIVATE asteroids_core)
 target_compile_options(systems_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME systems_test COMMAND systems_test)
+
+# --- Benchmark ---
+# Not a test: it prints timings instead of passing or failing, so it isn't
+# registered with add_test(). Build it in Release mode to get real numbers;
+# see the comment at the top of bench/registry_bench.cpp.
+add_executable(registry_bench bench/registry_bench.cpp)
+target_link_libraries(registry_bench PRIVATE asteroids_core)
+target_compile_options(registry_bench PRIVATE -Wall -Wextra -Wpedantic)
