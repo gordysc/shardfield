@@ -34,28 +34,58 @@ unset(CMAKE_POLICY_VERSION_MINIMUM)
 # from this project's code.
 target_compile_options(raylib PRIVATE -w)
 
-# The game program. Only .cpp files are listed: each one is compiled on its
-# own, and headers are compiled as part of every .cpp file that includes them.
-add_executable(asteroids
+# Everything except main() goes into a static library, `asteroids_core`. The
+# game and the tests both link it, so each source file is compiled once and
+# the tests check exactly the code the game runs. Only .cpp files are listed:
+# each one is compiled on its own, and headers are compiled as part of every
+# .cpp file that includes them.
+add_library(asteroids_core STATIC
     src/draw.cpp
     src/game.cpp
-    src/main.cpp
     src/random.cpp
+    src/registry.cpp
     src/rock.cpp
 )
 
-# Link raylib into the game. Linking a CMake target like `raylib` also adds
-# its include folders, which is how `#include <raylib.h>` is found. PRIVATE
-# means only `asteroids` itself uses raylib.
-target_link_libraries(asteroids PRIVATE raylib)
+# PUBLIC on an include folder means "use it to build this target, and also
+# pass it on to every target that links this one". The tests need it, to
+# find headers such as registry.h.
+target_include_directories(asteroids_core PUBLIC src)
 
-# -Wall and -Wextra turn on most useful compiler warnings. -Wpedantic warns
-# about compiler-specific extensions that aren't standard C++.
-target_compile_options(asteroids PRIVATE -Wall -Wextra -Wpedantic)
+# The core's headers include <raylib.h>, so anything that links the core
+# needs raylib too. PUBLIC passes raylib on to those targets. PRIVATE would
+# hide it from them, and INTERFACE would pass it on without the core using
+# it itself.
+target_link_libraries(asteroids_core PUBLIC raylib)
 
 # macOS system frameworks raylib needs: windows (Cocoa), keyboard and
 # controller input (IOKit), graphics (OpenGL) and frame timing (CoreVideo).
+# PUBLIC again, because the final programs are where linking happens.
 if (APPLE)
-    target_link_libraries(asteroids PRIVATE
+    target_link_libraries(asteroids_core PUBLIC
         "-framework Cocoa" "-framework IOKit" "-framework OpenGL" "-framework CoreVideo")
 endif()
+
+# The game program: just main(), plus everything in the core.
+add_executable(asteroids src/main.cpp)
+# PRIVATE: nothing links against a program, so there is nothing to pass on.
+target_link_libraries(asteroids PRIVATE asteroids_core)
+
+# -Wall and -Wextra turn on most useful compiler warnings. -Wpedantic warns
+# about compiler-specific extensions that aren't standard C++. PRIVATE keeps
+# these flags to our own targets, so they don't leak into code that links
+# the core.
+foreach(target asteroids_core asteroids)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+endforeach()
+
+# --- Tests ---
+# enable_testing() turns on CTest, CMake's test runner. Each add_test() line
+# registers one program; `ctest` runs them all and reports which failed (a
+# program fails by returning a non-zero exit code).
+enable_testing()
+
+add_executable(registry_test tests/registry_test.cpp)
+target_link_libraries(registry_test PRIVATE asteroids_core)
+target_compile_options(registry_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME registry_test COMMAND registry_test)
